@@ -2,6 +2,8 @@ const express = require('express');
 const session = require('express-session');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
+const https = require('https');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const { getDb, initDatabase } = require('./db');
@@ -54,6 +56,65 @@ function getSettings() {
   return settings;
 }
 
+// ===== FACEBOOK CONVERSION API =====
+
+function hashSHA256(value) {
+  if (!value) return null;
+  return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
+}
+
+function sendFBConversionEvent(eventName, eventData, userData, customData, sourceUrl) {
+  const settings = getSettings();
+  const pixelId = settings.facebook_pixel_id;
+  const accessToken = settings.facebook_access_token;
+  if (!pixelId || !accessToken) return;
+
+  const payload = {
+    data: [{
+      event_name: eventName,
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: eventData.event_id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      event_source_url: sourceUrl || '',
+      action_source: 'website',
+      user_data: {
+        ph: userData.phone ? [hashSHA256(userData.phone)] : undefined,
+        fn: userData.name ? [hashSHA256(userData.name.split(' ')[0])] : undefined,
+        ln: userData.name && userData.name.split(' ').length > 1 ? [hashSHA256(userData.name.split(' ').slice(1).join(' '))] : undefined,
+        ct: userData.city ? [hashSHA256(userData.city)] : undefined,
+        country: [hashSHA256('bd')],
+        client_ip_address: userData.ip || undefined,
+        client_user_agent: userData.user_agent || undefined,
+        fbc: userData.fbc || undefined,
+        fbp: userData.fbp || undefined,
+      },
+      custom_data: customData
+    }]
+  };
+
+  const testCode = settings.facebook_test_event_code;
+  if (testCode) payload.test_event_code = testCode;
+
+  const postData = JSON.stringify(payload);
+  const options = {
+    hostname: 'graph.facebook.com',
+    path: `/v21.0/${pixelId}/events?access_token=${accessToken}`,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+  };
+
+  const req = https.request(options, (res) => {
+    let body = '';
+    res.on('data', chunk => { body += chunk; });
+    res.on('end', () => {
+      if (res.statusCode !== 200) console.error('FB CAPI Error:', body);
+      else console.log('FB CAPI sent:', eventName);
+    });
+  });
+  req.on('error', (e) => console.error('FB CAPI request error:', e.message));
+  req.write(postData);
+  req.end();
+}
+
 // ===== PUBLIC API =====
 
 app.get('/api/settings', (req, res) => {
@@ -73,6 +134,7 @@ app.get('/api/settings', (req, res) => {
     whatsapp_number: s.whatsapp_number,
     messenger_link: s.messenger_link,
     facebook_page: s.facebook_page,
+    facebook_pixel_id: s.facebook_pixel_id || '',
   });
 });
 
@@ -196,7 +258,44 @@ app.post('/api/orders', (req, res) => {
     updateStock.run(item.quantity, item.product_id);
   }
 
-  res.json({ success: true, order_number: orderNumber, total: totalAmount, message: 'অর্ডার সফলভাবে সম্পন্ন হয়েছে!' });
+  // Facebook Conversion API — Purchase Event (Server-Side)
+  const eventId = `purchase_${orderNumber}_${Date.now()}`;
+  sendFBConversionEvent('Purchase', { event_id: eventId }, {
+    phone: phoneClean,
+    name: customer_name,
+    city: city || district || '',
+    ip: req.ip,
+    user_agent: req.headers['user-agent'],
+    fbc: req.body._fbc || null,
+    fbp: req.body._fbp || null,
+  }, {
+    currency: 'BDT',
+    value: totalAmount,
+    content_type: 'product',
+    contents: orderItems.map(i => ({ id: String(i.product_id), quantity: i.quantity, item_price: i.price })),
+    order_id: orderNumber,
+    num_items: orderItems.reduce((s, i) => s + i.quantity, 0),
+  }, req.body._source_url || '');
+
+  res.json({ success: true, order_number: orderNumber, total: totalAmount, event_id: eventId, message: 'অর্ডার সফলভাবে সম্পন্ন হয়েছে!' });
+});
+
+// Server-side CAPI relay for client events (deduplication with browser Pixel)
+app.post('/api/fb-event', (req, res) => {
+  const { event_name, event_id, custom_data, user_data, source_url } = req.body;
+  if (!event_name) return res.status(400).json({ error: 'event_name required' });
+
+  sendFBConversionEvent(event_name, { event_id: event_id || undefined }, {
+    phone: user_data?.phone || null,
+    name: user_data?.name || null,
+    city: user_data?.city || null,
+    ip: req.ip,
+    user_agent: req.headers['user-agent'],
+    fbc: user_data?.fbc || null,
+    fbp: user_data?.fbp || null,
+  }, custom_data || {}, source_url || req.headers.referer || '');
+
+  res.json({ success: true });
 });
 
 app.get('/api/orders/track/:orderNumber', (req, res) => {

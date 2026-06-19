@@ -26,6 +26,7 @@ function addToCart(product) {
   saveCart();
   renderCart();
   showToast('কার্টে যোগ হয়েছে!');
+  fbAddToCart(product);
 }
 
 function removeFromCart(id) {
@@ -180,6 +181,7 @@ async function showProduct(slug) {
       </div>`;
 
     modal.classList.add('open');
+    fbViewContent(p);
   } catch(e) { console.error(e); }
 }
 
@@ -232,7 +234,112 @@ async function loadSettings() {
       const el = document.getElementById('nagadOption');
       if (el) el.style.display = 'flex';
     }
+
+    // Initialize Facebook Pixel
+    if (shopSettings.facebook_pixel_id) {
+      initFBPixel(shopSettings.facebook_pixel_id);
+    }
   } catch(e) { console.error(e); }
+}
+
+// ===== FACEBOOK PIXEL & CAPI =====
+
+function getCookie(name) {
+  const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+  return v ? v.pop() : null;
+}
+
+function genEventId(prefix) {
+  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function initFBPixel(pixelId) {
+  if (window.fbq) return;
+  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+  n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}
+  (window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+
+  fbq('init', pixelId);
+  fbq('track', 'PageView');
+  sendServerEvent('PageView', genEventId('pv'), {});
+}
+
+function fbTrack(eventName, params, eventId) {
+  if (typeof fbq === 'function') {
+    fbq('track', eventName, params, { eventID: eventId });
+  }
+}
+
+function sendServerEvent(eventName, eventId, customData, userData) {
+  fetch('/api/fb-event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event_name: eventName,
+      event_id: eventId,
+      custom_data: customData,
+      user_data: {
+        fbc: getCookie('_fbc') || null,
+        fbp: getCookie('_fbp') || null,
+        ...(userData || {})
+      },
+      source_url: window.location.href
+    })
+  }).catch(() => {});
+}
+
+function fbViewContent(product) {
+  const eventId = genEventId('vc');
+  const params = {
+    content_type: 'product',
+    content_ids: [String(product.id)],
+    content_name: product.name_bn || product.name,
+    value: product.sale_price || product.price,
+    currency: 'BDT'
+  };
+  fbTrack('ViewContent', params, eventId);
+  sendServerEvent('ViewContent', eventId, params);
+}
+
+function fbAddToCart(product) {
+  const eventId = genEventId('atc');
+  const params = {
+    content_type: 'product',
+    content_ids: [String(product.id)],
+    content_name: product.name_bn || product.name || product.name,
+    value: product.price,
+    currency: 'BDT'
+  };
+  fbTrack('AddToCart', params, eventId);
+  sendServerEvent('AddToCart', eventId, params);
+}
+
+function fbInitiateCheckout() {
+  const eventId = genEventId('ic');
+  const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  const params = {
+    content_type: 'product',
+    content_ids: cart.map(i => String(i.id)),
+    num_items: cart.reduce((s, i) => s + i.quantity, 0),
+    value: subtotal,
+    currency: 'BDT'
+  };
+  fbTrack('InitiateCheckout', params, eventId);
+  sendServerEvent('InitiateCheckout', eventId, params);
+}
+
+function fbPurchase(orderNumber, total, items, eventId) {
+  const params = {
+    content_type: 'product',
+    content_ids: items.map(i => String(i.product_id)),
+    num_items: items.reduce((s, i) => s + i.quantity, 0),
+    value: total,
+    currency: 'BDT',
+    order_id: orderNumber
+  };
+  fbTrack('Purchase', params, eventId);
 }
 
 // ===== CHECKOUT =====
@@ -325,7 +432,10 @@ async function submitOrder(e) {
     hadiya_amount: selectedHadiya,
     payment_method: selectedPayment,
     problem_description: document.getElementById('custProblem') ? document.getElementById('custProblem').value.trim() : '',
-    coupon_code: couponCode
+    coupon_code: couponCode,
+    _fbc: getCookie('_fbc') || null,
+    _fbp: getCookie('_fbp') || null,
+    _source_url: window.location.href
   };
 
   try {
@@ -342,6 +452,9 @@ async function submitOrder(e) {
       btn.textContent = '📦 অর্ডার নিশ্চিত করুন';
       return;
     }
+
+    // FB Pixel Purchase (client-side, deduplicated with server via event_id)
+    fbPurchase(data.order_number, data.total, items, data.event_id);
 
     cart = [];
     saveCart();

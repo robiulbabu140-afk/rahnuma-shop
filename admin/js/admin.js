@@ -665,12 +665,41 @@ async function loadSettings() {
       </div>
 
       <div class="settings-section">
-        <h3>সোশ্যাল ও মার্কেটিং</h3>
+        <h3>সোশ্যাল মিডিয়া</h3>
         <div class="form-grid">
           <div class="form-group"><label>WhatsApp নম্বর</label><input id="sWhatsapp" value="${s.whatsapp_number||''}"></div>
           <div class="form-group"><label>Messenger লিংক</label><input id="sMessenger" value="${s.messenger_link||''}"></div>
-          <div class="form-group"><label>Facebook Page</label><input id="sFbPage" value="${s.facebook_page||''}"></div>
-          <div class="form-group"><label>Facebook Pixel ID</label><input id="sFbPixel" value="${s.facebook_pixel||''}"></div>
+          <div class="form-group"><label>Facebook Page URL</label><input id="sFbPage" value="${s.facebook_page||''}"></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>📊 Facebook Pixel & Conversion API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">ক্লায়েন্ট-সাইড Pixel + সার্ভার-সাইড Conversion API (CAPI) দুটোই কাজ করবে। ডুপ্লিকেশন এড়াতে Event ID দিয়ে ডিডুপ্লিকেশন হয়।</p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Facebook Pixel ID</label>
+            <input id="sFbPixelId" value="${s.facebook_pixel_id||''}" placeholder="যেমন: 123456789012345">
+            <small style="color:#888">Events Manager → Data Sources → Pixel ID</small>
+          </div>
+          <div class="form-group">
+            <label>Conversion API Access Token</label>
+            <input id="sFbAccessToken" type="password" value="${s.facebook_access_token||''}" placeholder="EAAxxxxxxx...">
+            <small style="color:#888">Events Manager → Settings → Generate Access Token</small>
+          </div>
+          <div class="form-group">
+            <label>Test Event Code (ঐচ্ছিক)</label>
+            <input id="sFbTestCode" value="${s.facebook_test_event_code||''}" placeholder="TEST12345">
+            <small style="color:#888">টেস্টিং এর সময় ব্যবহার করুন, লাইভে খালি রাখুন</small>
+          </div>
+        </div>
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-top:12px;font-size:13px">
+          <strong>ট্র্যাকিং ইভেন্টসমূহ:</strong><br>
+          ✅ PageView — প্রতিটি পেজ ভিজিট<br>
+          ✅ ViewContent — পণ্য দেখলে<br>
+          ✅ AddToCart — কার্টে যোগ করলে<br>
+          ✅ InitiateCheckout — চেকআউট পেজে গেলে<br>
+          ✅ Purchase — অর্ডার সম্পন্ন হলে (সার্ভার-সাইড + ক্লায়েন্ট)
         </div>
       </div>
 
@@ -707,7 +736,9 @@ async function saveSettings(e) {
       whatsapp_number: document.getElementById('sWhatsapp').value,
       messenger_link: document.getElementById('sMessenger').value,
       facebook_page: document.getElementById('sFbPage').value,
-      facebook_pixel: document.getElementById('sFbPixel').value,
+      facebook_pixel_id: document.getElementById('sFbPixelId').value,
+      facebook_access_token: document.getElementById('sFbAccessToken').value,
+      facebook_test_event_code: document.getElementById('sFbTestCode').value,
     })});
     toast('সেটিংস সেভ হয়েছে');
   } catch(e) { toast(e.message, 'error'); }
