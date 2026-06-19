@@ -31,9 +31,6 @@
       <a href="/track.html">অর্ডার ট্র্যাক</a>
     </div>
     <div class="nav-actions">
-      <button class="cart-btn" onclick="openCart()">
-        🛒 <span class="cart-count" id="cartCount">0</span>
-      </button>
       <button class="nav-toggle" onclick="toggleNav()">☰</button>
     </div>
   </div>
@@ -60,29 +57,9 @@
           <label class="form-label">সম্পূর্ণ ঠিকানা <span>*</span></label>
           <input type="text" class="form-input" id="dAddress" placeholder="জেলা, উপজেলা, গ্রাম/মহল্লা সহ ঠিকানা" required>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">ফোন নম্বর <span>*</span></label>
-            <input type="tel" class="form-input" id="dPhone" placeholder="01XXXXXXXXX" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">জেলা</label>
-            <select class="form-input" id="dDistrict">
-              <option value="">জেলা নির্বাচন</option>
-              <option value="Dhaka">ঢাকা</option>
-              <option value="Gazipur">গাজীপুর</option>
-              <option value="Narayanganj">নারায়ণগঞ্জ</option>
-              <option value="Chittagong">চট্টগ্রাম</option>
-              <option value="Rajshahi">রাজশাহী</option>
-              <option value="Khulna">খুলনা</option>
-              <option value="Sylhet">সিলেট</option>
-              <option value="Barisal">বরিশাল</option>
-              <option value="Rangpur">রংপুর</option>
-              <option value="Mymensingh">ময়মনসিংহ</option>
-              <option value="Comilla">কুমিল্লা</option>
-              <option value="Other">অন্যান্য</option>
-            </select>
-          </div>
+        <div class="form-group">
+          <label class="form-label">ফোন নম্বর <span>*</span></label>
+          <input type="tel" class="form-input" id="dPhone" placeholder="01XXXXXXXXX" required>
         </div>
 
         <div class="form-group">
@@ -220,17 +197,6 @@
   </div>
   <div class="footer-bottom"><p>© ২০২৬ রাহনুমা শপ। সমস্ত অধিকার সংরক্ষিত।</p></div>
 </footer>
-
-<!-- CART SIDEBAR -->
-<div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
-<div class="cart-sidebar" id="cartSidebar">
-  <div class="cart-header"><h3>🛒 আপনার কার্ট</h3><button onclick="closeCart()" class="cart-close">&times;</button></div>
-  <div class="cart-body" id="cartBody"></div>
-  <div class="cart-footer" id="cartFooter" style="display:none">
-    <div class="cart-total"><span>সাবটোটাল:</span><span id="cartSubtotal">৳০</span></div>
-    <a href="/checkout.html" class="btn-primary" style="display:block;text-align:center;width:100%">চেকআউট করুন</a>
-  </div>
-</div>
 
 <!-- PRODUCT MODAL -->
 <div class="modal-overlay" id="productModal">

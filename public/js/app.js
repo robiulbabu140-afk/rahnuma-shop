@@ -141,7 +141,7 @@ function renderProducts(products) {
         <div class="product-actions">
           ${outOfStock
             ? '<button class="add-cart-btn stock-out" disabled>স্টক শেষ</button>'
-            : `<button class="add-cart-btn" onclick="event.stopPropagation();addToCart(${JSON.stringify({id:p.id,name:p.name,name_bn:p.name_bn,price:price,image:p.image}).replace(/"/g,'&quot;')})">🛒 কার্টে যোগ করুন</button>`
+            : `<button class="add-cart-btn" onclick="event.stopPropagation();document.getElementById('order').scrollIntoView({behavior:'smooth'})">📦 অর্ডার করুন</button>`
           }
         </div>
       </div>
@@ -175,7 +175,7 @@ async function showProduct(slug) {
         <p style="font-size:14px;color:#555;line-height:1.8;margin-bottom:20px">${p.description_bn || p.description || ''}</p>
         <p style="font-size:13px;color:${p.stock > 0 ? '#22c55e' : '#e53e3e'};margin-bottom:16px">${p.stock > 0 ? `স্টক: ${p.stock}টি আছে` : 'স্টক শেষ'}</p>
         ${p.stock > 0
-          ? `<button class="btn-primary" style="width:100%;text-align:center" onclick="addToCart({id:${p.id},name:'${(p.name_bn||p.name).replace(/'/g,"\\'")}',price:${price},image:'${p.image||''}'});document.getElementById('productModal').classList.remove('open')">🛒 কার্টে যোগ করুন</button>`
+          ? `<button class="btn-primary" style="width:100%;text-align:center" onclick="document.getElementById('productModal').classList.remove('open');document.getElementById('order').scrollIntoView({behavior:'smooth'})">📦 অর্ডার করুন</button>`
           : '<button class="btn-primary stock-out" disabled style="width:100%;text-align:center;opacity:0.5">স্টক শেষ</button>'
         }
       </div>`;
@@ -555,7 +555,7 @@ async function submitDirectOrder(e) {
     customer_name: document.getElementById('dName').value.trim(),
     phone: document.getElementById('dPhone').value.trim(),
     address: document.getElementById('dAddress').value.trim(),
-    district: document.getElementById('dDistrict').value,
+    district: '',
     items,
     hadiya_amount: 0,
     payment_method: 'cod',
