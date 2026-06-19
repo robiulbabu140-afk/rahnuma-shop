@@ -480,6 +480,115 @@ function showToast(msg, type) {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+// ===== DIRECT ORDER (Homepage Form) =====
+let directHadiya = 2001;
+let directProducts = [];
+let directSelected = {};
+
+function selectHadiyaDirect(btn, amount) {
+  document.querySelectorAll('.hadiya-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  directHadiya = amount;
+}
+
+async function loadDirectProducts() {
+  try {
+    const res = await fetch('/api/products?limit=50');
+    const data = await res.json();
+    directProducts = data.products;
+    renderDirectProducts();
+  } catch(e) {}
+}
+
+function renderDirectProducts() {
+  const list = document.getElementById('directProductList');
+  if (!list || directProducts.length === 0) return;
+
+  list.innerHTML = directProducts.map(p => {
+    const price = p.sale_price || p.price;
+    const checked = directSelected[p.id] ? 'checked' : '';
+    const qty = directSelected[p.id]?.qty || 1;
+    const selected = directSelected[p.id] ? 'selected' : '';
+    return `<div class="direct-product-item ${selected}" onclick="toggleDirectProduct(${p.id}, ${price}, '${(p.name_bn||p.name).replace(/'/g,"\\'")}')">
+      <input type="checkbox" ${checked} onclick="event.stopPropagation();toggleDirectProduct(${p.id}, ${price}, '${(p.name_bn||p.name).replace(/'/g,"\\'")}')">
+      <div class="dp-info">
+        <div class="dp-name">${p.name_bn || p.name}</div>
+        <div class="dp-price">৳${price}${p.sale_price ? ` <span style="text-decoration:line-through;color:#999;font-weight:400;font-size:12px">৳${p.price}</span>` : ''}</div>
+      </div>
+      ${directSelected[p.id] ? `<div class="dp-qty" onclick="event.stopPropagation()">
+        <button onclick="changeDirectQty(${p.id},-1)">-</button>
+        <span>${qty}</span>
+        <button onclick="changeDirectQty(${p.id},1)">+</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleDirectProduct(id, price, name) {
+  if (directSelected[id]) {
+    delete directSelected[id];
+  } else {
+    directSelected[id] = { id, price, name, qty: 1 };
+  }
+  renderDirectProducts();
+}
+
+function changeDirectQty(id, delta) {
+  if (!directSelected[id]) return;
+  directSelected[id].qty += delta;
+  if (directSelected[id].qty <= 0) delete directSelected[id];
+  renderDirectProducts();
+}
+
+async function submitDirectOrder(e) {
+  e.preventDefault();
+  const selectedItems = Object.values(directSelected);
+  if (selectedItems.length === 0) { showToast('অন্তত একটি পণ্য নির্বাচন করুন', 'error'); return; }
+
+  const btn = document.getElementById('directSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'প্রসেস হচ্ছে...';
+
+  const items = selectedItems.map(s => ({ product_id: s.id, quantity: s.qty }));
+
+  const orderData = {
+    customer_name: document.getElementById('dName').value.trim(),
+    phone: document.getElementById('dPhone').value.trim(),
+    address: document.getElementById('dAddress').value.trim(),
+    district: document.getElementById('dDistrict').value,
+    items,
+    hadiya_amount: directHadiya,
+    payment_method: 'cod',
+    problem_description: document.getElementById('dProblem') ? document.getElementById('dProblem').value.trim() : '',
+    _fbc: getCookie('_fbc') || null,
+    _fbp: getCookie('_fbp') || null,
+    _source_url: window.location.href
+  };
+
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast(data.error || 'সমস্যা হয়েছে', 'error');
+      btn.disabled = false;
+      btn.textContent = '📦 অর্ডার নিশ্চিত করুন';
+      return;
+    }
+
+    fbPurchase(data.order_number, data.total, items, data.event_id);
+    window.location.href = `/order-success.html?order=${data.order_number}&total=${data.total}`;
+  } catch(e) {
+    showToast('সার্ভারে সমস্যা হয়েছে', 'error');
+    btn.disabled = false;
+    btn.textContent = '📦 অর্ডার নিশ্চিত করুন';
+  }
+}
+
 // ===== SCROLL ANIMATIONS =====
 const observer = new IntersectionObserver(entries => {
   entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
@@ -490,6 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCartCount();
   loadCategories();
   loadProducts();
+  loadDirectProducts();
   loadSettings();
 
   document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
