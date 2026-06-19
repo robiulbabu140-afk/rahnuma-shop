@@ -352,9 +352,90 @@ async function showProductForm(id) {
       </div>
       <button type="submit" class="btn btn-primary">${id ? 'Update' : 'Add Product'}</button>
     </form>
+    ${id ? `<div style="margin-top:24px;border-top:2px solid var(--border);padding-top:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="font-size:16px">Product Variants</h3>
+        <button class="btn btn-sm btn-primary" onclick="showAddVariantForm(${id})">+ Add Variant</button>
+      </div>
+      <div id="variantsList">Loading variants...</div>
+    </div>` : ''}
+  </div>`;
+  document.body.appendChild(modal);
+  if (id) loadVariants(id);
+}
+
+async function loadVariants(productId) {
+  const el = document.getElementById('variantsList');
+  if (!el) return;
+  try {
+    const variants = await api('/api/admin/products/' + productId + '/variants');
+    if (variants.length === 0) {
+      el.innerHTML = '<p style="color:#999;font-size:13px">No variants yet. Add variants like Size, Color, etc.</p>';
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Name</th><th>Value</th><th>Price +/-</th><th>Stock</th><th>SKU</th><th>Action</th></tr></thead><tbody>
+    ${variants.map(v => `<tr>
+      <td><strong>${v.name}</strong></td>
+      <td>${v.value}</td>
+      <td>${v.price_adjustment > 0 ? '+' : ''}${v.price_adjustment || 0} TK</td>
+      <td>${v.stock}</td>
+      <td>${v.sku || '-'}</td>
+      <td class="table-actions">
+        <button class="btn btn-sm btn-ghost" onclick="editVariant(${v.id}, ${productId})">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete variant?'))deleteVariant(${v.id}, ${productId})">✕</button>
+      </td>
+    </tr>`).join('')}</tbody></table>`;
+  } catch(e) { el.innerHTML = '<p style="color:red">Failed to load variants</p>'; }
+}
+
+function showAddVariantForm(productId) {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.style.zIndex = '300';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:450px">
+    <div class="modal-header"><h2>Add Variant</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <form onsubmit="saveVariant(event, ${productId})">
+      <div class="form-grid">
+        <div class="form-group"><label>Variant Name</label><input id="vName" required placeholder="e.g. Size, Color, Pack"><small style="color:#888">e.g. Size, Color, Pack Type</small></div>
+        <div class="form-group"><label>Value</label><input id="vValue" required placeholder="e.g. Large, Red, 100pcs"></div>
+        <div class="form-group"><label>Price Adjustment (TK)</label><input type="number" id="vPriceAdj" value="0" step="any"><small style="color:#888">+ or - from base price</small></div>
+        <div class="form-group"><label>Stock</label><input type="number" id="vStock" value="0"></div>
+      </div>
+      <div class="form-group"><label>SKU (optional)</label><input id="vSku" placeholder="Variant SKU"></div>
+      <button type="submit" class="btn btn-primary">Add Variant</button>
+    </form>
   </div>`;
   document.body.appendChild(modal);
 }
+
+async function saveVariant(e, productId) {
+  e.preventDefault();
+  try {
+    await api('/api/admin/products/' + productId + '/variants', { method: 'POST', body: JSON.stringify({
+      name: document.getElementById('vName').value,
+      value: document.getElementById('vValue').value,
+      price_adjustment: Number(document.getElementById('vPriceAdj').value) || 0,
+      stock: Number(document.getElementById('vStock').value) || 0,
+      sku: document.getElementById('vSku').value || null
+    })});
+    document.querySelectorAll('.admin-modal')[document.querySelectorAll('.admin-modal').length - 1].remove();
+    toast('Variant added');
+    loadVariants(productId);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function editVariant(variantId, productId) {
+  // For simplicity, delete and re-add
+  showAddVariantForm(productId);
+}
+
+async function deleteVariant(variantId, productId) {
+  try {
+    await api('/api/admin/variants/' + variantId, { method: 'DELETE' });
+    toast('Variant deleted');
+    loadVariants(productId);
+  } catch(e) { toast(e.message, 'error'); }
 
 async function uploadImage(input) {
   if (!input.files[0]) return;
@@ -1318,7 +1399,7 @@ function getDefaultBlockData(type) {
     case 'hero': return { title: 'Welcome', subtitle: 'Your subtitle here', bg_color: '#1e3a5f', text_color: '#ffffff', cta_text: 'Order Now', cta_link: '#order' };
     case 'text': return { content: '<p>Enter your text content here.</p>' };
     case 'image': return { url: '', alt: '', caption: '' };
-    case 'product': return { product_id: '', show_order_form: false };
+    case 'product': return { product_id: '', show_order_form: true, show_variants: true };
     case 'cta': return { text: 'Click Here', link: '#', color: '#2563eb', text_color: '#ffffff' };
     case 'faq': return { items: [{ question: 'Sample question?', answer: 'Sample answer.' }] };
     case 'testimonial': return { name: 'Customer Name', text: 'Great product!', rating: 5 };
@@ -1361,10 +1442,14 @@ function renderBlockEditor(block, index, totalBlocks) {
     case 'product':
       fieldsHtml = `
         <div class="form-grid">
-          <div class="form-group"><label>Product</label><select id="blockProduct${index}" onchange="updateBlockData(${index}, 'product_id', this.value)"><option value="">Select Product</option></select></div>
-          <div class="form-group"><label><input type="checkbox" ${block.data.show_order_form ? 'checked' : ''} onchange="updateBlockData(${index}, 'show_order_form', this.checked)"> Show COD Order Form</label></div>
+          <div class="form-group"><label>Product</label><select id="blockProduct${index}" onchange="updateBlockData(${index}, 'product_id', this.value);loadBlockVariantPreview(${index}, this.value)"><option value="">Select Product</option></select></div>
+          <div class="form-group" style="display:flex;flex-direction:column;gap:8px;justify-content:center">
+            <label><input type="checkbox" ${block.data.show_order_form ? 'checked' : ''} onchange="updateBlockData(${index}, 'show_order_form', this.checked)"> Show COD Order Form</label>
+            <label><input type="checkbox" ${block.data.show_variants !== false ? 'checked' : ''} onchange="updateBlockData(${index}, 'show_variants', this.checked)"> Show Variants (if available)</label>
+          </div>
         </div>
-        <script>loadBlockProductOptions(${index}, '${block.data.product_id || ''}')<\/script>`;
+        <div id="blockVariantPreview${index}" style="margin-top:8px"></div>
+        <script>loadBlockProductOptions(${index}, '${block.data.product_id || ''}');if('${block.data.product_id}')loadBlockVariantPreview(${index},'${block.data.product_id}')<\/script>`;
       break;
     case 'cta':
       fieldsHtml = `
@@ -1590,8 +1675,30 @@ async function loadBlockProductOptions(blockIndex, selectedId) {
       _productListCache = await api('/api/admin/products/list');
     }
     const products = _productListCache;
-    sel.innerHTML = '<option value="">Select Product</option>' + products.map(p => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name} (TK ${p.sale_price || p.price})</option>`).join('');
+    sel.innerHTML = '<option value="">Select Product</option>' + products.map(p =>
+      `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name} (TK ${p.sale_price || p.price})${p.variant_count > 0 ? ' ['+p.variant_count+' variants]' : ''}</option>`
+    ).join('');
   } catch(e) {}
+}
+
+async function loadBlockVariantPreview(blockIndex, productId) {
+  const el = document.getElementById('blockVariantPreview' + blockIndex);
+  if (!el || !productId) { if(el) el.innerHTML = ''; return; }
+  try {
+    const variants = await api('/api/products/' + productId + '/variants');
+    if (variants.length === 0) {
+      el.innerHTML = '<small style="color:#999">No variants for this product</small>';
+      return;
+    }
+    const grouped = {};
+    variants.forEach(v => { if (!grouped[v.name]) grouped[v.name] = []; grouped[v.name].push(v); });
+    let html = '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;font-size:13px"><strong>Variants available:</strong><br>';
+    for (const [name, vals] of Object.entries(grouped)) {
+      html += `<span style="font-weight:600">${name}:</span> ${vals.map(v => `<span style="background:#e0f2e0;padding:2px 8px;border-radius:4px;margin:2px">${v.value}${v.price_adjustment ? ' (+'+v.price_adjustment+'TK)' : ''}</span>`).join(' ')} <br>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = ''; }
 }
 
 async function saveLandingPage(id) {

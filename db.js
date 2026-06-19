@@ -134,6 +134,22 @@ async function initDatabase() {
         FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
       );
 
+      CREATE TABLE IF NOT EXISTS product_variants (
+        id SERIAL PRIMARY KEY,
+        product_id INT NOT NULL,
+        name TEXT NOT NULL,
+        value TEXT NOT NULL,
+        price_adjustment REAL DEFAULT 0,
+        stock INT DEFAULT 0,
+        sku TEXT,
+        is_active INT DEFAULT 1,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_id);
+
       CREATE TABLE IF NOT EXISTS expenses (
         id SERIAL PRIMARY KEY,
         category TEXT NOT NULL,

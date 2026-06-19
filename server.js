@@ -899,6 +899,57 @@ app.delete('/api/admin/products/:id', requireAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ===== PRODUCT VARIANTS =====
+
+// Public: get variants for a product
+app.get('/api/products/:id/variants', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM product_variants WHERE product_id = $1 AND is_active = 1 ORDER BY sort_order ASC', [req.params.id]);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Admin: get all variants for a product
+app.get('/api/admin/products/:id/variants', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM product_variants WHERE product_id = $1 ORDER BY sort_order ASC', [req.params.id]);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Admin: add variant
+app.post('/api/admin/products/:id/variants', requireAdmin, async (req, res) => {
+  try {
+    const { name, value, price_adjustment, stock, sku } = req.body;
+    if (!name || !value) return res.status(400).json({ error: 'Name and value required' });
+    const result = await pool.query(
+      'INSERT INTO product_variants (product_id, name, value, price_adjustment, stock, sku) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [req.params.id, name, value, price_adjustment || 0, stock || 0, sku || null]
+    );
+    res.json({ success: true, variant: result.rows[0] });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Admin: update variant
+app.put('/api/admin/variants/:id', requireAdmin, async (req, res) => {
+  try {
+    const { name, value, price_adjustment, stock, sku, is_active, sort_order } = req.body;
+    await pool.query(
+      'UPDATE product_variants SET name = COALESCE($1, name), value = COALESCE($2, value), price_adjustment = COALESCE($3, price_adjustment), stock = COALESCE($4, stock), sku = COALESCE($5, sku), is_active = COALESCE($6, is_active), sort_order = COALESCE($7, sort_order) WHERE id = $8',
+      [name || null, value || null, price_adjustment !== undefined ? price_adjustment : null, stock !== undefined ? stock : null, sku || null, is_active !== undefined ? is_active : null, sort_order !== undefined ? sort_order : null, req.params.id]
+    );
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Admin: delete variant
+app.delete('/api/admin/variants/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM product_variants WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
 // ===== ADMIN CATEGORIES =====
 
 app.get('/api/admin/categories', requireAdmin, async (req, res) => {
@@ -1488,8 +1539,20 @@ app.post('/api/admin/pages/:id/revisions/:revId/restore', requireAdmin, async (r
 // ===== ADMIN PRODUCTS LIST FOR PAGE BUILDER =====
 app.get('/api/admin/products/list', requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, name_bn, price, sale_price, image FROM products WHERE is_active = 1 ORDER BY name ASC');
+    const result = await pool.query(`SELECT p.id, p.name, p.name_bn, p.price, p.sale_price, p.image,
+      (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_active = 1) as variant_count
+      FROM products p WHERE p.is_active = 1 ORDER BY p.name ASC`);
     res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Public: product with variants for landing page
+app.get('/api/products/:id/full', async (req, res) => {
+  try {
+    const product = await pool.query('SELECT * FROM products WHERE id = $1 AND is_active = 1', [req.params.id]);
+    if (product.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const variants = await pool.query('SELECT * FROM product_variants WHERE product_id = $1 AND is_active = 1 ORDER BY sort_order ASC', [req.params.id]);
+    res.json({ ...product.rows[0], variants: variants.rows });
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 

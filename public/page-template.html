@@ -41,6 +41,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 .product-card .product-price{font-size:28px;font-weight:800;color:#059669;margin-bottom:4px}
 .product-card .product-original-price{font-size:16px;color:#9ca3af;text-decoration:line-through;margin-left:8px}
 .product-card .product-stock{font-size:14px;color:#6b7280;margin-bottom:20px}
+.variant-btn{border:1.5px solid #d0c8b8;background:#fafaf8;color:#333;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;transition:all 0.2s}
+.variant-btn:hover{border-color:#2d6e47;background:#f0fdf4}
+.variant-btn.active{border-color:#1a4a2e;background:#1a4a2e;color:#fff}
 
 /* Order Form */
 .order-form{background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:24px;margin-top:20px}
@@ -214,6 +217,19 @@ function renderBlock(block, index) {
   }
 }
 
+function selectVariant(btn, index, basePrice) {
+  btn.parentElement.querySelectorAll('.variant-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  var adj = Number(btn.getAttribute('data-price-adj')) || 0;
+  var newPrice = basePrice + adj;
+  var priceEl = document.getElementById('lpPrice' + index);
+  if (priceEl) priceEl.textContent = (SETTINGS.currency || 'TK') + ' ' + newPrice;
+  // Update order form total if exists
+  if (document.getElementById('lpQty' + index)) {
+    updateLpOrderSummary(index, newPrice);
+  }
+}
+
 function toggleFaq(el) {
   var answer = el.nextElementSibling;
   var isOpen = el.classList.contains('open');
@@ -227,18 +243,11 @@ function loadProductBlock(index, data) {
     return;
   }
 
-  fetch('/api/products?search=')
-    .then(function(r) { return r.json(); })
-    .then(function(result) {
-      var product = null;
-      if (result.products) {
-        product = result.products.find(function(p) { return String(p.id) === String(data.product_id); });
-      }
+  fetch('/api/products/' + data.product_id + '/full')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(product) {
       if (!product) {
-        // Try direct fetch by getting all
-        fetch('/api/products/' + data.product_id)
-          .then(function(r) { return r.ok ? r.json() : null; })
-          .then(function(p) { if (p) renderProductCard(index, p, data); });
+        document.getElementById('product-block-' + index).innerHTML = '<p style="text-align:center;padding:20px;color:#dc2626">Product not found</p>';
         return;
       }
       renderProductCard(index, product, data);
@@ -253,14 +262,33 @@ function renderProductCard(index, product, data) {
   if (!container) return;
 
   var price = product.sale_price || product.price;
+  var variants = product.variants || [];
   var html = '<div class="product-card">';
   if (product.image) html += '<img src="' + esc(product.image) + '" alt="' + esc(product.name) + '" class="product-image">';
   html += '<div class="product-info">';
   html += '<div class="product-name">' + esc(product.name_bn || product.name) + '</div>';
   if (product.description) html += '<div class="product-desc">' + esc(product.description_bn || product.description) + '</div>';
-  html += '<div class="product-price">' + esc(SETTINGS.currency || 'TK') + ' ' + price;
+  html += '<div class="product-price" id="lpPrice' + index + '">' + esc(SETTINGS.currency || 'TK') + ' ' + price;
   if (product.sale_price && product.price > product.sale_price) html += '<span class="product-original-price">' + esc(SETTINGS.currency || 'TK') + ' ' + product.price + '</span>';
   html += '</div>';
+
+  // Variant selector
+  if (data.show_variants !== false && variants.length > 0) {
+    var grouped = {};
+    variants.forEach(function(v) { if (!grouped[v.name]) grouped[v.name] = []; grouped[v.name].push(v); });
+    html += '<div class="product-variants" style="margin:12px 0">';
+    for (var vName in grouped) {
+      html += '<div style="margin-bottom:10px"><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">' + esc(vName) + ':</label>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      grouped[vName].forEach(function(v, vi) {
+        var adj = v.price_adjustment ? (v.price_adjustment > 0 ? ' (+' + v.price_adjustment + ')' : ' (' + v.price_adjustment + ')') : '';
+        html += '<button type="button" class="variant-btn' + (vi === 0 ? ' active' : '') + '" data-variant-id="' + v.id + '" data-price-adj="' + (v.price_adjustment || 0) + '" onclick="selectVariant(this,' + index + ',' + price + ')">' + esc(v.value) + adj + '</button>';
+      });
+      html += '</div></div>';
+    }
+    html += '</div>';
+  }
+
   if (product.stock > 0) html += '<div class="product-stock">In Stock: ' + product.stock + ' available</div>';
   else html += '<div class="product-stock" style="color:#dc2626">Out of Stock</div>';
   html += '</div></div>';
