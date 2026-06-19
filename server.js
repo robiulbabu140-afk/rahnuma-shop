@@ -13,9 +13,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Initialize database before starting
-(async () => {
-  await initDatabase();
-})();
+initDatabase().then(() => {
+  console.log('Database ready.');
+}).catch(err => {
+  console.error('Database init failed:', err.message);
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

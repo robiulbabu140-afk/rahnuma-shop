@@ -5,16 +5,17 @@ const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://rahnuma_db_user:H
 
 const poolConfig = {
   connectionString: DATABASE_URL,
+  ssl: DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
 };
-
-if (DATABASE_URL.includes('render.com') || process.env.NODE_ENV === 'production') {
-  poolConfig.ssl = { rejectUnauthorized: false };
-}
 
 const pool = new Pool(poolConfig);
 
 async function initDatabase() {
+  console.log('Connecting to database...');
+  console.log('URL prefix:', DATABASE_URL.substring(0, 30) + '...');
   const client = await pool.connect();
+  console.log('Connected to PostgreSQL.');
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS admin_users (
