@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>রাহনুমা শপ — সুন্নাহভিত্তিক রুকইয়াহ পণ্য</title>
+<meta name="description" content="১০০% হালাল ও সুন্নাহভিত্তিক রুকইয়াহ পেপার, তেল, পানি। ক্যাশ অন ডেলিভারি।">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Bengali:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <span>📦 ক্যাশ অন ডেলিভারি উপলব্ধ</span>
+    <span>☎ 01303073353</span>
+  </div>
+</div>
+
+<!-- NAVBAR -->
+<nav class="navbar" id="navbar">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">রাহনুমা <span>শপ</span></a>
+    <div class="nav-links" id="navLinks">
+      <a href="/">হোম</a>
+      <a href="#products">পণ্যসমূহ</a>
+      <a href="#about">আমাদের সম্পর্কে</a>
+      <a href="#faq">প্রশ্নোত্তর</a>
+      <a href="#contact">যোগাযোগ</a>
+      <a href="/track.html">অর্ডার ট্র্যাক</a>
+    </div>
+    <div class="nav-actions">
+      <button class="cart-btn" onclick="openCart()">
+        🛒 <span class="cart-count" id="cartCount">0</span>
+      </button>
+      <button class="nav-toggle" onclick="toggleNav()">☰</button>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">🕌 সুন্নাহভিত্তিক চিকিৎসা</div>
+    <div class="arabic-verse">وَنُنَزِّلُ مِنَ الْقُرْآنِ مَا هُوَ شِفَاءٌ</div>
+    <div class="arabic-trans">আমি কুরআনে এমন কিছু নাযিল করি যা রোগের আরোগ্য — সূরা বনী ইসরাঈল: ৮২</div>
+    <h1>কালো জাদু ও বদনজর থেকে <span>মুক্তি পান</span> কুরআনিক রুকইয়াহয়</h1>
+    <p class="hero-sub">জিন্নর আছর, কালো জাদু, বান মারা, বদনজর, মানসিক চাপ — যেকোনো সমস্যায় ১০০% হালাল রুকইয়াহ পেপার।</p>
+    <div class="hero-stats">
+      <div class="stat"><span class="stat-num">৩০০০+</span><span class="stat-label">সন্তুষ্ট গ্রাহক</span></div>
+      <div class="stat"><span class="stat-num">⭐ ৪.৯</span><span class="stat-label">গ্রাহক রেটিং</span></div>
+      <div class="stat"><span class="stat-num">১–৯০</span><span class="stat-label">দিনে ফলাফল</span></div>
+    </div>
+    <a href="#products" class="btn-primary">🛍 পণ্য দেখুন</a>
+    <div class="trust-row">
+      <div class="trust-item"><span>✅</span> ক্যাশ অন ডেলিভারি</div>
+      <div class="trust-item"><span>✅</span> ১০০% হালাল</div>
+      <div class="trust-item"><span>✅</span> গোপনীয়তা সুরক্ষিত</div>
+    </div>
+  </div>
+</section>
+
+<!-- CATEGORIES -->
+<section class="section" id="categories">
+  <div class="section-inner">
+    <span class="section-label">ক্যাটেগরি</span>
+    <h2 class="section-title">আমাদের <span>পণ্যের ধরন</span></h2>
+    <div class="divider"></div>
+    <div class="category-grid" id="categoryGrid"></div>
+  </div>
+</section>
+
+<!-- PRODUCTS -->
+<section class="section products-section" id="products">
+  <div class="section-inner">
+    <span class="section-label">আমাদের পণ্যসমূহ</span>
+    <h2 class="section-title">সকল <span>পণ্য</span></h2>
+    <div class="divider"></div>
+    <div class="product-filters">
+      <button class="filter-btn active" data-cat="all">সব</button>
+    </div>
+    <div class="product-grid" id="productGrid"></div>
+  </div>
+</section>
+
+<!-- ABOUT / WHY US -->
+<section class="section about-section" id="about">
+  <div class="section-inner">
+    <span class="section-label">কেন আমরা?</span>
+    <h2 class="section-title">রাহনুমা শপ কেন <span>বিশ্বস্ত?</span></h2>
+    <div class="divider"></div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📜</div>
+        <h3>কুরআন-সুন্নাহ ভিত্তিক</h3>
+        <p>প্রতিটি পণ্য কুরআন ও সহীহ হাদীসের আলোকে তৈরি</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>সম্পূর্ণ গোপনীয়</h3>
+        <p>আপনার সব তথ্য আমাদের কাছে সুরক্ষিত</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🚚</div>
+        <h3>দ্রুত ডেলিভারি</h3>
+        <p>ঢাকায় ১-২ দিন, ঢাকার বাইরে ২-৪ দিন</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💰</div>
+        <h3>ক্যাশ অন ডেলিভারি</h3>
+        <p>পণ্য হাতে পেয়ে টাকা দিন</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📞</div>
+        <h3>পরামর্শ সেবা</h3>
+        <p>আপনার সমস্যা অনুযায়ী কুরআনি পরামর্শ</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">✨</div>
+        <h3>প্রিমিয়াম কোয়ালিটি</h3>
+        <p>বিদেশ থেকে আমদানিকৃত সেরা উপাদান</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- REVIEWS -->
+<section class="section reviews-section">
+  <div class="section-inner">
+    <span class="section-label">গ্রাহকদের মতামত</span>
+    <h2 class="section-title">আমাদের সন্তুষ্ট <span>গ্রাহকগণ</span></h2>
+    <div class="divider"></div>
+    <div class="review-grid">
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">আলহামদুলিল্লাহ, রুকিয়া পেপার খুব মানসম্মত। আমার প্রত্যাশার চেয়েও ভালো। শেষ হলে অবশ্যই আবার নেবো।</p>
+        <div class="reviewer"><div class="reviewer-avatar">আ</div><div><div class="reviewer-name">Afsana Haque</div><div class="reviewer-label">যাকাতকৃত গ্রেতা</div></div></div>
+      </div>
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">মনে হয় আগেই যদি পেতাম! রুকিয়া পেপার সত্যিই উপকারী। আলহামদুলিল্লাহ অনেক ভালো ফিল করছি।</p>
+        <div class="reviewer"><div class="reviewer-avatar">আ</div><div><div class="reviewer-name">Ashraful Karim</div><div class="reviewer-label">যাকাতকৃত গ্রেতা</div></div></div>
+      </div>
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">রুকিয়া পেপার আলহামদুলিল্লাহ অনেক ভালো কাজ করেছে। শেষ হলে আবার নেবো।</p>
+        <div class="reviewer"><div class="reviewer-avatar">ই</div><div><div class="reviewer-name">Imran Hossain</div><div class="reviewer-label">যাকাতকৃত গ্রেতা</div></div></div>
+      </div>
+      <div class="review-card">
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">খুবই আমেজিং সার্ভিস! পণ্যটি পাওয়ার পর থেকে অনেক বেশি নিরাপদ বোধ করছি।</p>
+        <div class="reviewer"><div class="reviewer-avatar">র</div><div><div class="reviewer-name">Rahim Uddin</div><div class="reviewer-label">যাকাতকৃত গ্রেতা</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section faq-section" id="faq">
+  <div class="section-inner">
+    <span class="section-label">প্রশ্ন ও উত্তর</span>
+    <h2 class="section-title">আপনার মনের <span>প্রশ্নগুলো</span></h2>
+    <div class="divider"></div>
+    <div class="faq-list">
+      <div class="faq-item open">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span class="faq-icon">+</span>হাদিয়া কত দিতে হবে?</button>
+        <div class="faq-a">যেহেতু কুরআন এবং হাদিসের ব্যাপার, হাদিয়ার ব্যাপারে আমরা কিছু বলব না। আপনি আনসাফ করে আপনার সমস্যার গভীরতা অনুযায়ী ৫০১, ১০০১, ২০০১, ৫০০১ — যা মনে করেন তাই দিন।</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span class="faq-icon">+</span>কীভাবে রুকইয়াহ করবো?</button>
+        <div class="faq-a">প্যাকেটের সাথে একটি বিস্তারিত ব্যবহার বিধিমালার কিটি দেওয়া হবে। আপনার সমস্যার ধরন অনুযায়ী পেপারে কুরআনি রুকইয়াহ লেখা থাকবে এবং সেভাবে পরিপালন করলেই হবে।</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span class="faq-icon">+</span>ফলাফল কতদিনে পাওয়া যাবে?</button>
+        <div class="faq-a">কুরআন ও হাদিসের আলোকে এবং আমাদের ব্যক্তিগত অভিজ্ঞতা অনুযায়ী ১ থেকে ৯০ দিনের মধ্যে সমস্যার সমাধান পেতে শুরু করবেন, ইনশাআল্লাহ।</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span class="faq-icon">+</span>আমার তথ্য কি গোপন থাকবে?</button>
+        <div class="faq-a">সম্পূর্ণ গোপনীয়তা নিশ্চিত করা হয়। আপনার সব তথ্য আমাদের কাছে সুরক্ষিত এবং কখনো তৃতীয় পক্ষের সাথে শেয়ার করা হয় না।</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span class="faq-icon">+</span>ডেলিভারি চার্জ কত?</button>
+        <div class="faq-a">ঢাকার ভিতরে ৳৬০ এবং ঢাকার বাইরে ৳১২০। পণ্য হাতে পেয়ে টাকা পরিশোধ করতে পারবেন (ক্যাশ অন ডেলিভারি)।</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section class="section contact-section" id="contact">
+  <div class="section-inner" style="text-align:center">
+    <span class="section-label">যোগাযোগ</span>
+    <h2 class="section-title">যেকোনো প্রশ্নে <span>আমাদের সাথে যোগাযোগ করুন</span></h2>
+    <div class="divider" style="margin:0 auto 28px"></div>
+    <div class="contact-btns">
+      <a href="tel:01303073353" class="contact-btn btn-call">📞 কল করুন</a>
+      <a href="https://wa.me/8801303073353" class="contact-btn btn-wa">💬 WhatsApp</a>
+      <a href="#" class="contact-btn btn-msg">💬 Messenger</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-col">
+      <h3>রাহনুমা শপ</h3>
+      <p>সুন্নাহভিত্তিক রুকইয়াহ পণ্যের বিশ্বস্ত প্রতিষ্ঠান।</p>
+    </div>
+    <div class="footer-col">
+      <h3>লিংক</h3>
+      <a href="/">হোম</a>
+      <a href="#products">পণ্যসমূহ</a>
+      <a href="/track.html">অর্ডার ট্র্যাক</a>
+      <a href="#contact">যোগাযোগ</a>
+    </div>
+    <div class="footer-col">
+      <h3>যোগাযোগ</h3>
+      <p>📞 01303073353</p>
+      <p>💬 WhatsApp: 01303073353</p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>© ২০২৬ রাহনুমা শপ। সমস্ত অধিকার সংরক্ষিত।</p>
+  </div>
+</footer>
+
+<!-- CART SIDEBAR -->
+<div class="cart-overlay" id="cartOverlay" onclick="closeCart()"></div>
+<div class="cart-sidebar" id="cartSidebar">
+  <div class="cart-header">
+    <h3>🛒 আপনার কার্ট</h3>
+    <button onclick="closeCart()" class="cart-close">&times;</button>
+  </div>
+  <div class="cart-body" id="cartBody"></div>
+  <div class="cart-footer" id="cartFooter" style="display:none">
+    <div class="cart-total">
+      <span>সাবটোটাল:</span>
+      <span id="cartSubtotal">৳০</span>
+    </div>
+    <a href="/checkout.html" class="btn-primary" style="display:block;text-align:center;width:100%">চেকআউট করুন</a>
+  </div>
+</div>
+
+<!-- PRODUCT MODAL -->
+<div class="modal-overlay" id="productModal">
+  <div class="modal-content" id="productModalContent"></div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>অর্ডার ট্র্যাক — রাহনুমা শপ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">রাহনুমা <span>শপ</span></a>
+    <div class="nav-links"><a href="/">← হোমে ফিরুন</a></div>
+  </div>
+</nav>
+
+<section class="section" style="padding-top:100px;min-height:80vh">
+  <div class="section-inner" style="max-width:600px">
+    <h2 class="section-title" style="text-align:center">অর্ডার ট্র্যাক করুন</h2>
+    <div class="divider" style="margin:0 auto 28px"></div>
+
+    <div class="order-card">
+      <div class="form-group">
+        <label class="form-label">অর্ডার নম্বর</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" class="form-input" id="trackInput" placeholder="যেমন: RN260619ABCD">
+          <button class="btn-primary" onclick="trackOrder()" style="white-space:nowrap;padding:12px 24px">খুঁজুন</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="trackResult" style="margin-top:24px"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-bottom"><p>© ২০২৬ রাহনুমা শপ। সমস্ত অধিকার সংরক্ষিত।</p></div>
+</footer>
+
+<script src="/js/app.js"></script>
+<script>
+async function trackOrder() {
+  const num = document.getElementById('trackInput').value.trim();
+  if (!num) return;
+  const resultDiv = document.getElementById('trackResult');
+  resultDiv.innerHTML = '<p style="text-align:center">খুঁজছি...</p>';
+  try {
+    const res = await fetch('/api/orders/track/' + num);
+    if (!res.ok) { resultDiv.innerHTML = '<div class="order-card" style="text-align:center;color:#e53e3e">অর্ডার পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর দিন।</div>'; return; }
+    const data = await res.json();
+    const o = data.order;
+    const statusBn = { pending:'পেন্ডিং', confirmed:'নিশ্চিত', processing:'প্রসেসিং', shipped:'শিপড', delivered:'ডেলিভারড', returned:'রিটার্ন', cancelled:'বাতিল', flagged:'রিভিউতে' };
+    const statusColor = { pending:'#f59e0b', confirmed:'#3b82f6', processing:'#8b5cf6', shipped:'#0ea5e9', delivered:'#22c55e', returned:'#ef4444', cancelled:'#6b7280', flagged:'#ef4444' };
+
+    let html = '<div class="order-card">';
+    html += '<h3 style="margin-bottom:16px">অর্ডার: ' + o.order_number + '</h3>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">';
+    html += '<div><strong>নাম:</strong> ' + o.customer_name + '</div>';
+    html += '<div><strong>স্ট্যাটাস:</strong> <span style="background:' + (statusColor[o.status]||'#888') + ';color:#fff;padding:3px 12px;border-radius:50px;font-size:13px">' + (statusBn[o.status]||o.status) + '</span></div>';
+    html += '<div><strong>মোট:</strong> ৳' + o.total_amount + '</div>';
+    html += '<div><strong>পেমেন্ট:</strong> ' + (o.payment_status === 'paid' ? 'পরিশোধিত' : 'অপরিশোধিত') + '</div>';
+    if (o.courier) html += '<div><strong>কুরিয়ার:</strong> ' + o.courier + '</div>';
+    if (o.tracking_number) html += '<div><strong>ট্র্যাকিং:</strong> ' + o.tracking_number + '</div>';
+    html += '<div><strong>তারিখ:</strong> ' + new Date(o.created_at).toLocaleDateString('bn-BD') + '</div>';
+    html += '</div>';
+
+    html += '<h4 style="margin:12px 0 8px">পণ্যসমূহ:</h4>';
+    html += '<table style="width:100%;font-size:14px;border-collapse:collapse">';
+    data.items.forEach(item => {
+      html += '<tr style="border-bottom:1px solid #eee"><td style="padding:6px 0">' + item.product_name + '</td><td style="text-align:center">' + item.quantity + 'x</td><td style="text-align:right">৳' + item.total + '</td></tr>';
+    });
+    html += '</table>';
+    html += '</div>';
+    resultDiv.innerHTML = html;
+  } catch(e) { resultDiv.innerHTML = '<div class="order-card" style="text-align:center;color:#e53e3e">কিছু সমস্যা হয়েছে। আবার চেষ্টা করুন।</div>'; }
+}
+</script>
+</body>
+</html>

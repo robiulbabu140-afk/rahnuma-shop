@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>চেকআউট — রাহনুমা শপ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Bengali:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">রাহনুমা <span>শপ</span></a>
+    <div class="nav-links"><a href="/">← হোমে ফিরুন</a></div>
+  </div>
+</nav>
+
+<section class="section" style="padding-top:100px;min-height:80vh">
+  <div class="section-inner">
+    <h2 class="section-title">চেকআউট</h2>
+    <div class="divider"></div>
+
+    <div class="checkout-layout">
+      <!-- ORDER SUMMARY -->
+      <div class="checkout-summary">
+        <h3>অর্ডার সারাংশ</h3>
+        <div id="checkoutItems"></div>
+        <div class="checkout-totals" id="checkoutTotals"></div>
+      </div>
+
+      <!-- CHECKOUT FORM -->
+      <div class="checkout-form">
+        <div class="order-card">
+          <div class="hadiya-notice">
+            <strong>হাদিয়া সম্পর্কে:</strong> যেহেতু কুরআন এবং হাদিসের ব্যাপার, হাদিয়ার পরিমাণ আমরা নির্ধারণ করি না। আপনার সমস্যার গভীরতা অনুযায়ী যা মনে করেন তাই দিন:
+            <div class="hadiya-options">
+              <button class="hadiya-btn" onclick="selectHadiya(this, 501)">৳ ৫০১</button>
+              <button class="hadiya-btn" onclick="selectHadiya(this, 1001)">৳ ১০০১</button>
+              <button class="hadiya-btn active" onclick="selectHadiya(this, 2001)">৳ ২০০১</button>
+              <button class="hadiya-btn" onclick="selectHadiya(this, 5001)">৳ ৫০০১</button>
+            </div>
+          </div>
+
+          <form id="checkoutForm" onsubmit="submitOrder(event)">
+            <div class="form-group">
+              <label class="form-label">আপনার নাম <span>*</span></label>
+              <input type="text" class="form-input" id="custName" placeholder="সম্পূর্ণ নাম লিখুন" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">ফোন নম্বর <span>*</span></label>
+              <input type="tel" class="form-input" id="custPhone" placeholder="01XXXXXXXXX" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">জেলা <span>*</span></label>
+                <select class="form-input" id="custDistrict" required onchange="updateShipping()">
+                  <option value="">জেলা নির্বাচন করুন</option>
+                  <option value="Dhaka">ঢাকা</option>
+                  <option value="Chittagong">চট্টগ্রাম</option>
+                  <option value="Rajshahi">রাজশাহী</option>
+                  <option value="Khulna">খুলনা</option>
+                  <option value="Sylhet">সিলেট</option>
+                  <option value="Barisal">বরিশাল</option>
+                  <option value="Rangpur">রংপুর</option>
+                  <option value="Mymensingh">ময়মনসিংহ</option>
+                  <option value="Gazipur">গাজীপুর</option>
+                  <option value="Narayanganj">নারায়ণগঞ্জ</option>
+                  <option value="Comilla">কুমিল্লা</option>
+                  <option value="Jessore">যশোর</option>
+                  <option value="Bogra">বগুড়া</option>
+                  <option value="Dinajpur">দিনাজপুর</option>
+                  <option value="Other">অন্যান্য</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">শহর / এলাকা</label>
+                <input type="text" class="form-input" id="custCity" placeholder="শহর বা এলাকা">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">সম্পূর্ণ ঠিকানা <span>*</span></label>
+              <textarea class="form-input" id="custAddress" rows="2" placeholder="বাসা, রোড, এলাকা সহ সম্পূর্ণ ঠিকানা" required style="resize:vertical"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">সমস্যার বিবরণ</label>
+              <textarea class="form-input" id="custProblem" rows="3" placeholder="আপনার সমস্যা সংক্ষেপে লিখুন (ঐচ্ছিক)" style="resize:vertical"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">কুপন কোড</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" class="form-input" id="couponCode" placeholder="কুপন কোড">
+                <button type="button" class="btn-secondary" onclick="applyCoupon()">প্রয়োগ</button>
+              </div>
+              <div id="couponMsg" style="font-size:12px;margin-top:4px"></div>
+            </div>
+
+            <div class="payment-methods">
+              <label class="form-label">পেমেন্ট পদ্ধতি</label>
+              <div class="payment-option active" onclick="selectPayment(this, 'cod')">
+                <span>📦</span> ক্যাশ অন ডেলিভারি
+              </div>
+              <div class="payment-option" id="bkashOption" style="display:none" onclick="selectPayment(this, 'bkash')">
+                <span>📱</span> bKash
+              </div>
+              <div class="payment-option" id="nagadOption" style="display:none" onclick="selectPayment(this, 'nagad')">
+                <span>📱</span> Nagad
+              </div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">📦 অর্ডার নিশ্চিত করুন</button>
+            <div class="cod-badge">📦 ক্যাশ অন ডেলিভারি — পণ্য হাতে পেয়ে টাকা দিন</div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-bottom"><p>© ২০২৬ রাহনুমা শপ। সমস্ত অধিকার সংরক্ষিত।</p></div>
+</footer>
+
+<script src="/js/app.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  renderCheckout();
+  loadSettings();
+});
+</script>
+</body>
+</html>

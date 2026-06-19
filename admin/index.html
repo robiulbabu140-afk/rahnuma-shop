@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>অ্যাডমিন — রাহনুমা শপ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body>
+  <div class="admin-layout">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2>রাহনুমা শপ</h2>
+        <small>অ্যাডমিন প্যানেল</small>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="dashboard" onclick="loadPage('dashboard')">📊 ড্যাশবোর্ড</a>
+        <a href="#" class="nav-item" data-page="orders" onclick="loadPage('orders')">📦 অর্ডার</a>
+        <a href="#" class="nav-item" data-page="products" onclick="loadPage('products')">🏷 পণ্যসমূহ</a>
+        <a href="#" class="nav-item" data-page="categories" onclick="loadPage('categories')">📁 ক্যাটেগরি</a>
+        <a href="#" class="nav-item" data-page="customers" onclick="loadPage('customers')">👥 গ্রাহক</a>
+        <a href="#" class="nav-item" data-page="coupons" onclick="loadPage('coupons')">🎫 কুপন</a>
+        <a href="#" class="nav-item" data-page="expenses" onclick="loadPage('expenses')">💸 খরচ</a>
+        <a href="#" class="nav-item" data-page="reports" onclick="loadPage('reports')">📈 রিপোর্ট</a>
+        <a href="#" class="nav-item" data-page="settings" onclick="loadPage('settings')">⚙ সেটিংস</a>
+        <div class="sidebar-divider"></div>
+        <a href="/" class="nav-item" target="_blank">🌐 শপ দেখুন</a>
+        <a href="#" class="nav-item" onclick="logout()">🚪 লগআউট</a>
+      </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main-content">
+      <header class="top-header">
+        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <h1 id="pageTitle">ড্যাশবোর্ড</h1>
+        <div class="header-user" id="headerUser"></div>
+      </header>
+      <div class="page-content" id="pageContent">
+        <div style="text-align:center;padding:60px"><p>লোড হচ্ছে...</p></div>
+      </div>
+    </main>
+  </div>
+
+<script src="/admin/js/admin.js"></script>
+</body>
+</html>

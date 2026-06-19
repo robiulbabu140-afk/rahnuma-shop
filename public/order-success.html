@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>অর্ডার সফল — রাহনুমা শপ</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">রাহনুমা <span>শপ</span></a>
+  </div>
+</nav>
+
+<section class="section" style="padding-top:120px;min-height:80vh;text-align:center">
+  <div class="section-inner" style="max-width:500px">
+    <div style="font-size:80px;margin-bottom:20px">✅</div>
+    <h2 class="section-title" style="text-align:center">অর্ডার সফলভাবে সম্পন্ন!</h2>
+    <p style="font-size:15px;color:#555;margin-bottom:8px">আলহামদুলিল্লাহ! আপনার অর্ডারটি গ্রহণ করা হয়েছে।</p>
+    <div class="order-card" style="margin-top:24px">
+      <p><strong>অর্ডার নম্বর:</strong> <span id="successOrderNum" style="color:var(--green-mid);font-size:18px;font-weight:700"></span></p>
+      <p><strong>মোট:</strong> <span id="successTotal"></span></p>
+      <p style="margin-top:12px;font-size:13px;color:#666">শীঘ্রই আমরা আপনার সাথে যোগাযোগ করব।</p>
+    </div>
+    <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <a href="/" class="btn-primary">🏠 হোমে ফিরুন</a>
+      <a href="/track.html" class="btn-secondary">📦 অর্ডার ট্র্যাক করুন</a>
+    </div>
+  </div>
+</section>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+document.getElementById('successOrderNum').textContent = params.get('order') || '';
+document.getElementById('successTotal').textContent = '৳' + (params.get('total') || '0');
+</script>
+</body>
+</html>
