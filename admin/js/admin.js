@@ -20,10 +20,10 @@ function loadPage(page) {
   const el = document.querySelector(`.nav-item[data-page="${page}"]`);
   if (el) el.classList.add('active');
 
-  const titles = { dashboard:'ড্যাশবোর্ড', orders:'অর্ডার ম্যানেজমেন্ট', products:'পণ্য ম্যানেজমেন্ট', categories:'ক্যাটেগরি', customers:'গ্রাহক ম্যানেজমেন্ট', coupons:'কুপন ম্যানেজমেন্ট', expenses:'খরচ ম্যানেজমেন্ট', reports:'রিপোর্ট', settings:'সেটিংস' };
+  const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', fraud:'Fraud Protection', settings:'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
-  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, settings: loadSettings };
+  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, fraud: loadFraudPage, settings: loadSettings };
   if (loaders[page]) loaders[page]();
 
   document.getElementById('sidebar').classList.remove('open');
@@ -48,58 +48,58 @@ async function api(url, opts) {
 // ===== DASHBOARD =====
 async function loadDashboard() {
   const c = document.getElementById('pageContent');
-  c.innerHTML = '<p>লোড হচ্ছে...</p>';
+  c.innerHTML = '<p>Loading...</p>';
   try {
     const d = await api('/api/admin/dashboard');
     const maxRev = Math.max(...d.last7Days.map(x => x.revenue), 1);
 
     c.innerHTML = `
     <div class="stats-grid">
-      <div class="stat-card highlight"><div class="label">আজকের বিক্রি</div><div class="value">৳${d.today.revenue}</div><div class="sub">${d.today.orders}টি অর্ডার</div></div>
-      <div class="stat-card highlight"><div class="label">এই মাসের বিক্রি</div><div class="value">৳${d.month.revenue}</div><div class="sub">${d.month.orders}টি অর্ডার</div></div>
-      <div class="stat-card"><div class="label">মোট অর্ডার</div><div class="value">${d.totalOrders}</div></div>
-      <div class="stat-card"><div class="label">মোট গ্রাহক</div><div class="value">${d.totalCustomers}</div></div>
-      <div class="stat-card"><div class="label">মোট পণ্য</div><div class="value">${d.totalProducts}</div></div>
-      <div class="stat-card"><div class="label">নেট প্রফিট</div><div class="value" style="color:${d.profit.net>=0?'#16a34a':'#dc2626'}">৳${Math.round(d.profit.net)}</div></div>
+      <div class="stat-card highlight"><div class="label">Today's Sales</div><div class="value">TK ${d.today.revenue}</div><div class="sub">${d.today.orders} orders</div></div>
+      <div class="stat-card highlight"><div class="label">This Month's Sales</div><div class="value">TK ${d.month.revenue}</div><div class="sub">${d.month.orders} orders</div></div>
+      <div class="stat-card"><div class="label">Total Orders</div><div class="value">${d.totalOrders}</div></div>
+      <div class="stat-card"><div class="label">Total Customers</div><div class="value">${d.totalCustomers}</div></div>
+      <div class="stat-card"><div class="label">Total Products</div><div class="value">${d.totalProducts}</div></div>
+      <div class="stat-card"><div class="label">Net Profit</div><div class="value" style="color:${d.profit.net>=0?'#16a34a':'#dc2626'}">TK ${Math.round(d.profit.net)}</div></div>
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card"><div class="label">পেন্ডিং</div><div class="value" style="color:#f59e0b">${d.pendingOrders}</div></div>
-      <div class="stat-card"><div class="label">নিশ্চিত</div><div class="value" style="color:#3b82f6">${d.confirmedOrders}</div></div>
-      <div class="stat-card"><div class="label">শিপড</div><div class="value" style="color:#0ea5e9">${d.shippedOrders}</div></div>
-      <div class="stat-card"><div class="label">ডেলিভারড</div><div class="value" style="color:#22c55e">${d.deliveredOrders}</div></div>
-      <div class="stat-card"><div class="label">বাতিল</div><div class="value" style="color:#6b7280">${d.cancelledOrders}</div></div>
-      <div class="stat-card"><div class="label">রিটার্ন</div><div class="value" style="color:#dc2626">${d.returnedOrders}</div></div>
+      <div class="stat-card"><div class="label">Pending</div><div class="value" style="color:#f59e0b">${d.pendingOrders}</div></div>
+      <div class="stat-card"><div class="label">Confirmed</div><div class="value" style="color:#3b82f6">${d.confirmedOrders}</div></div>
+      <div class="stat-card"><div class="label">Shipped</div><div class="value" style="color:#0ea5e9">${d.shippedOrders}</div></div>
+      <div class="stat-card"><div class="label">Delivered</div><div class="value" style="color:#22c55e">${d.deliveredOrders}</div></div>
+      <div class="stat-card"><div class="label">Cancelled</div><div class="value" style="color:#6b7280">${d.cancelledOrders}</div></div>
+      <div class="stat-card"><div class="label">Returned</div><div class="value" style="color:#dc2626">${d.returnedOrders}</div></div>
     </div>
 
     <div class="chart-box">
-      <h3>গত ৭ দিনের বিক্রি</h3>
+      <h3>Last 7 Days Sales</h3>
       <div class="chart-bars">
         ${d.last7Days.map(day => {
           const h = Math.max((day.revenue / maxRev) * 130, 4);
-          return `<div class="chart-bar" style="height:${h}px"><span class="chart-bar-val">৳${day.revenue}</span><span class="chart-bar-label">${day.date.slice(5)}</span></div>`;
+          return `<div class="chart-bar" style="height:${h}px"><span class="chart-bar-val">TK ${day.revenue}</span><span class="chart-bar-label">${day.date.slice(5)}</span></div>`;
         }).join('')}
       </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <div class="table-wrap">
-        <div class="table-header"><h2>সাম্প্রতিক অর্ডার</h2></div>
-        <table><thead><tr><th>অর্ডার</th><th>গ্রাহক</th><th>মোট</th><th>স্ট্যাটাস</th></tr></thead><tbody>
+        <div class="table-header"><h2>Recent Orders</h2></div>
+        <table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead><tbody>
         ${d.recentOrders.map(o => `<tr style="cursor:pointer" onclick="loadPage('orders');setTimeout(()=>viewOrder(${o.order_number.replace(/[^0-9A-Z]/g,'')}),500)">
-          <td>${o.order_number}</td><td>${o.customer_name}</td><td>৳${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td>
+          <td>${o.order_number}</td><td>${o.customer_name}</td><td>TK ${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td>
         </tr>`).join('')}
         </tbody></table>
       </div>
       <div class="table-wrap">
-        <div class="table-header"><h2>লো স্টক সতর্কতা</h2></div>
+        <div class="table-header"><h2>Low Stock Alert</h2></div>
         <div class="low-stock-list" style="padding:0 16px 16px">
-          ${d.lowStockProducts.length === 0 ? '<p style="color:#999;padding:20px 0;text-align:center">সব স্টক ঠিক আছে</p>' :
-            d.lowStockProducts.map(p => `<div class="low-stock-item"><span>${p.name_bn || p.name}</span><span class="stock">${p.stock}টি বাকি</span></div>`).join('')}
+          ${d.lowStockProducts.length === 0 ? '<p style="color:#999;padding:20px 0;text-align:center">All stock is fine</p>' :
+            d.lowStockProducts.map(p => `<div class="low-stock-item"><span>${p.name_bn || p.name}</span><span class="stock">${p.stock} remaining</span></div>`).join('')}
         </div>
       </div>
     </div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">ডাটা লোড করতে সমস্যা হয়েছে</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Failed to load data</p>'; }
 }
 
 // ===== ORDERS =====
@@ -113,17 +113,17 @@ async function loadOrders() {
     <div class="table-wrap">
       <div class="table-header">
         <div class="search-bar">
-          <input type="text" placeholder="অর্ডার/নাম/ফোন খুঁজুন..." id="orderSearch" onkeyup="if(event.key==='Enter'){ordersSearch=this.value;ordersPage=1;fetchOrders()}">
+          <input type="text" placeholder="Search order/name/phone..." id="orderSearch" onkeyup="if(event.key==='Enter'){ordersSearch=this.value;ordersPage=1;fetchOrders()}">
           <select id="orderStatusFilter" onchange="ordersStatus=this.value;ordersPage=1;fetchOrders()">
-            <option value="all">সব স্ট্যাটাস</option>
-            <option value="pending">পেন্ডিং</option>
-            <option value="confirmed">নিশ্চিত</option>
-            <option value="processing">প্রসেসিং</option>
-            <option value="shipped">শিপড</option>
-            <option value="delivered">ডেলিভারড</option>
-            <option value="cancelled">বাতিল</option>
-            <option value="returned">রিটার্ন</option>
-            <option value="flagged">ফ্ল্যাগড</option>
+            <option value="all">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="processing">Processing</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="returned">Returned</option>
+            <option value="flagged">Flagged</option>
           </select>
         </div>
       </div>
@@ -140,24 +140,24 @@ async function fetchOrders() {
     const tbody = data.orders.map(o => `<tr>
       <td><strong>${o.order_number}</strong></td>
       <td>${o.customer_name}<br><small style="color:#999">${o.phone}</small></td>
-      <td>৳${o.total_amount}</td>
+      <td>TK ${o.total_amount}</td>
       <td><span class="badge badge-${o.status}">${o.status}</span></td>
-      <td>${o.payment_status === 'paid' ? '<span style="color:#16a34a">পরিশোধিত</span>' : '<span style="color:#f59e0b">অপরিশোধিত</span>'}</td>
-      <td>${new Date(o.created_at).toLocaleDateString('bn-BD')}</td>
+      <td>${o.payment_status === 'paid' ? '<span style="color:#16a34a">Paid</span>' : '<span style="color:#f59e0b">Unpaid</span>'}</td>
+      <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td class="table-actions">
-        <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">বিস্তারিত</button>
+        <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
         ${!o.consignment_id && (o.status==='confirmed'||o.status==='processing') ? `<button class="btn btn-sm btn-gold" onclick="sendToCourier(${o.id})">🚀</button>` : ''}
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>অর্ডার</th><th>গ্রাহক</th><th>মোট</th><th>স্ট্যাটাস</th><th>পেমেন্ট</th><th>তারিখ</th><th>কুরিয়ার</th><th>অ্যাকশন</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
 
-    let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← আগে</button>`;
-    pagHtml += `<span>পেজ ${data.page} / ${data.pages || 1}</span>`;
-    pagHtml += `<button ${data.page>=data.pages?'disabled':''} onclick="ordersPage++;fetchOrders()">পরে →</button>`;
+    let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
+    pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
+    pagHtml += `<button ${data.page>=data.pages?'disabled':''} onclick="ordersPage++;fetchOrders()">Next →</button>`;
     document.getElementById('ordersPagination').innerHTML = pagHtml;
-  } catch(e) { document.getElementById('ordersTable').innerHTML = '<p style="padding:20px;color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { document.getElementById('ordersTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
 }
 
 async function viewOrder(id) {
@@ -171,61 +171,61 @@ async function viewOrder(id) {
     modal.className = 'admin-modal';
     modal.onclick = function(e) { if(e.target===this) this.remove(); };
     modal.innerHTML = `<div class="admin-modal-content">
-      <div class="modal-header"><h2>অর্ডার: ${o.order_number}</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div class="modal-header"><h2>Order: ${o.order_number}</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
 
       <div class="order-detail-grid">
-        <div class="detail-box"><h4>গ্রাহক তথ্য</h4>
-          <div class="detail-row"><span>নাম:</span><span>${o.customer_name}</span></div>
-          <div class="detail-row"><span>ফোন:</span><span>${o.phone}</span></div>
-          <div class="detail-row"><span>ঠিকানা:</span><span>${o.address}</span></div>
-          <div class="detail-row"><span>জেলা:</span><span>${o.district || '-'}</span></div>
-          ${o.problem_description ? `<div class="detail-row"><span>সমস্যা:</span><span>${o.problem_description}</span></div>` : ''}
+        <div class="detail-box"><h4>Customer Info</h4>
+          <div class="detail-row"><span>Name:</span><span>${o.customer_name}</span></div>
+          <div class="detail-row"><span>Phone:</span><span>${o.phone}</span></div>
+          <div class="detail-row"><span>Address:</span><span>${o.address}</span></div>
+          <div class="detail-row"><span>District:</span><span>${o.district || '-'}</span></div>
+          ${o.problem_description ? `<div class="detail-row"><span>Issue:</span><span>${o.problem_description}</span></div>` : ''}
         </div>
-        <div class="detail-box"><h4>অর্ডার তথ্য</h4>
-          <div class="detail-row"><span>সাবটোটাল:</span><span>৳${o.subtotal}</span></div>
-          <div class="detail-row"><span>শিপিং:</span><span>৳${o.shipping_cost}</span></div>
-          ${o.discount > 0 ? `<div class="detail-row"><span>ডিসকাউন্ট:</span><span>-৳${o.discount}</span></div>` : ''}
-          <div class="detail-row"><span>হাদিয়া:</span><span>৳${o.hadiya_amount || 0}</span></div>
-          <div class="detail-row" style="font-weight:700"><span>মোট:</span><span>৳${o.total_amount}</span></div>
-          <div class="detail-row"><span>পেমেন্ট:</span><span>${o.payment_method} / ${o.payment_status}</span></div>
-          <div class="detail-row"><span>তারিখ:</span><span>${new Date(o.created_at).toLocaleString('bn-BD')}</span></div>
+        <div class="detail-box"><h4>Order Info</h4>
+          <div class="detail-row"><span>Subtotal:</span><span>TK ${o.subtotal}</span></div>
+          <div class="detail-row"><span>Shipping:</span><span>TK ${o.shipping_cost}</span></div>
+          ${o.discount > 0 ? `<div class="detail-row"><span>Discount:</span><span>-TK ${o.discount}</span></div>` : ''}
+          <div class="detail-row"><span>Hadiya:</span><span>TK ${o.hadiya_amount || 0}</span></div>
+          <div class="detail-row" style="font-weight:700"><span>Total:</span><span>TK ${o.total_amount}</span></div>
+          <div class="detail-row"><span>Payment:</span><span>${o.payment_method} / ${o.payment_status}</span></div>
+          <div class="detail-row"><span>Date:</span><span>${new Date(o.created_at).toLocaleString('en-US')}</span></div>
         </div>
       </div>
 
       <div style="margin-top:16px">
-        <h4 style="margin-bottom:8px">পণ্যসমূহ</h4>
-        <table><thead><tr><th>পণ্য</th><th>পরিমাণ</th><th>দাম</th><th>মোট</th></tr></thead><tbody>
-        ${data.items.map(i => `<tr><td>${i.product_name}</td><td>${i.quantity}</td><td>৳${i.price}</td><td>৳${i.total}</td></tr>`).join('')}
+        <h4 style="margin-bottom:8px">Products</h4>
+        <table><thead><tr><th>Product</th><th>Quantity</th><th>Price</th><th>Total</th></tr></thead><tbody>
+        ${data.items.map(i => `<tr><td>${i.product_name}</td><td>${i.quantity}</td><td>TK ${i.price}</td><td>TK ${i.total}</td></tr>`).join('')}
         </tbody></table>
       </div>
 
       ${o.consignment_id ? `<div class="detail-box" style="margin-top:16px;background:#ecfeff;border-color:#0ea5e9">
-        <h4 style="color:#0e7490">🚚 কুরিয়ার তথ্য (Steadfast)</h4>
+        <h4 style="color:#0e7490">Courier Info (Steadfast)</h4>
         <div class="detail-row"><span>Consignment ID:</span><span>${o.consignment_id}</span></div>
         <div class="detail-row"><span>Tracking Code:</span><span><strong>${o.tracking_code}</strong></span></div>
-        <div class="detail-row"><span>কুরিয়ার স্ট্যাটাস:</span><span><span class="badge badge-${o.courier_status==='delivered'?'delivered':o.courier_status==='cancelled'?'cancelled':'shipped'}">${o.courier_status||'-'}</span></span></div>
-        ${o.delivery_charge ? `<div class="detail-row"><span>ডেলিভারি চার্জ:</span><span>৳${o.delivery_charge}</span></div>` : ''}
-        ${o.courier_message ? `<div class="detail-row"><span>ট্র্যাকিং:</span><span>${o.courier_message}</span></div>` : ''}
-        <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="refreshCourierStatus(${o.id})">🔄 স্ট্যাটাস রিফ্রেশ</button>
+        <div class="detail-row"><span>Courier Status:</span><span><span class="badge badge-${o.courier_status==='delivered'?'delivered':o.courier_status==='cancelled'?'cancelled':'shipped'}">${o.courier_status||'-'}</span></span></div>
+        ${o.delivery_charge ? `<div class="detail-row"><span>Delivery Charge:</span><span>TK ${o.delivery_charge}</span></div>` : ''}
+        ${o.courier_message ? `<div class="detail-row"><span>Tracking:</span><span>${o.courier_message}</span></div>` : ''}
+        <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="refreshCourierStatus(${o.id})">Refresh Status</button>
       </div>` : `<div style="margin-top:16px;padding:16px;background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px;text-align:center">
-        <p style="margin-bottom:10px;font-size:14px;color:#92400e">📦 এই অর্ডারটি এখনো কুরিয়ারে পাঠানো হয়নি</p>
-        <button class="btn btn-gold" onclick="sendToCourier(${o.id})">🚀 Steadfast কুরিয়ারে পাঠান</button>
+        <p style="margin-bottom:10px;font-size:14px;color:#92400e">This order has not been sent to courier yet</p>
+        <button class="btn btn-gold" onclick="sendToCourier(${o.id})">Send to Steadfast Courier</button>
       </div>`}
 
       <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-        <div class="form-group"><label>স্ট্যাটাস পরিবর্তন</label><select id="orderStatus">${statusOpts}</select></div>
-        <div class="form-group"><label>কুরিয়ার</label><input id="orderCourier" value="${o.courier||''}" placeholder="Steadfast, Pathao..."></div>
-        <div class="form-group"><label>ট্র্যাকিং নম্বর</label><input id="orderTracking" value="${o.tracking_number||o.tracking_code||''}"></div>
+        <div class="form-group"><label>Change Status</label><select id="orderStatus">${statusOpts}</select></div>
+        <div class="form-group"><label>Courier</label><input id="orderCourier" value="${o.courier||''}" placeholder="Steadfast, Pathao..."></div>
+        <div class="form-group"><label>Tracking Number</label><input id="orderTracking" value="${o.tracking_number||o.tracking_code||''}"></div>
       </div>
-      <div class="form-group"><label>নোট</label><textarea id="orderNotes" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${o.notes||''}</textarea></div>
+      <div class="form-group"><label>Notes</label><textarea id="orderNotes" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${o.notes||''}</textarea></div>
 
       <div style="display:flex;gap:12px;margin-top:16px">
-        <button class="btn btn-primary" onclick="updateOrderStatus(${o.id})">সেভ করুন</button>
-        <button class="btn btn-danger" onclick="if(confirm('অর্ডার ডিলিট করবেন?')){deleteOrder(${o.id});this.closest('.admin-modal').remove()}">ডিলিট</button>
+        <button class="btn btn-primary" onclick="updateOrderStatus(${o.id})">Save</button>
+        <button class="btn btn-danger" onclick="if(confirm('Delete this order?')){deleteOrder(${o.id});this.closest('.admin-modal').remove()}">Delete</button>
       </div>
     </div>`;
     document.body.appendChild(modal);
-  } catch(e) { toast('অর্ডার লোড ব্যর্থ', 'error'); }
+  } catch(e) { toast('Failed to load order', 'error'); }
 }
 
 async function updateOrderStatus(id) {
@@ -238,16 +238,16 @@ async function updateOrderStatus(id) {
       notes: document.getElementById('orderNotes').value
     })});
     document.querySelector('.admin-modal').remove();
-    toast('অর্ডার আপডেট হয়েছে');
+    toast('Order updated');
     fetchOrders();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function sendToCourier(orderId) {
-  if (!confirm('এই অর্ডারটি Steadfast কুরিয়ারে পাঠাতে চান?')) return;
+  if (!confirm('Send this order to Steadfast courier?')) return;
   try {
     const result = await api('/api/admin/orders/' + orderId + '/send-courier', { method: 'POST' });
-    toast('কুরিয়ারে পাঠানো হয়েছে! Tracking: ' + (result.consignment?.tracking_code || ''));
+    toast('Sent to courier! Tracking: ' + (result.consignment?.tracking_code || ''));
     document.querySelector('.admin-modal')?.remove();
     fetchOrders();
   } catch(e) { toast(e.message, 'error'); }
@@ -256,14 +256,14 @@ async function sendToCourier(orderId) {
 async function refreshCourierStatus(orderId) {
   try {
     const result = await api('/api/admin/orders/' + orderId + '/courier-status');
-    toast('কুরিয়ার স্ট্যাটাস: ' + (result.delivery_status || 'unknown'));
+    toast('Courier status: ' + (result.delivery_status || 'unknown'));
     document.querySelector('.admin-modal')?.remove();
     viewOrder(orderId);
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteOrder(id) {
-  try { await api('/api/admin/orders/' + id, { method: 'DELETE' }); toast('অর্ডার ডিলিট হয়েছে'); fetchOrders(); }
+  try { await api('/api/admin/orders/' + id, { method: 'DELETE' }); toast('Order deleted'); fetchOrders(); }
   catch(e) { toast(e.message, 'error'); }
 }
 
@@ -276,9 +276,9 @@ async function loadProducts() {
     <div class="table-wrap">
       <div class="table-header">
         <div class="search-bar">
-          <input type="text" placeholder="পণ্য খুঁজুন..." id="prodSearch" onkeyup="if(event.key==='Enter')fetchProducts()">
+          <input type="text" placeholder="Search products..." id="prodSearch" onkeyup="if(event.key==='Enter')fetchProducts()">
         </div>
-        <button class="btn btn-primary" onclick="showProductForm()">+ নতুন পণ্য</button>
+        <button class="btn btn-primary" onclick="showProductForm()">+ New Product</button>
       </div>
       <div id="productsTable"></div>
       <div class="pagination" id="productsPagination"></div>
@@ -291,23 +291,23 @@ async function fetchProducts() {
     const search = document.getElementById('prodSearch')?.value || '';
     const data = await api(`/api/admin/products?page=${productsPage}&search=${search}`);
 
-    document.getElementById('productsTable').innerHTML = `<table><thead><tr><th>ছবি</th><th>পণ্য</th><th>দাম</th><th>স্টক</th><th>ক্যাটেগরি</th><th>স্ট্যাটাস</th><th>অ্যাকশন</th></tr></thead><tbody>
+    document.getElementById('productsTable').innerHTML = `<table><thead><tr><th>Image</th><th>Product</th><th>Price</th><th>Stock</th><th>Category</th><th>Status</th><th>Action</th></tr></thead><tbody>
     ${data.products.map(p => `<tr>
       <td>${p.image ? `<img src="${p.image}" style="width:40px;height:40px;border-radius:6px;object-fit:cover">` : '📦'}</td>
       <td><strong>${p.name_bn || p.name}</strong><br><small style="color:#999">SKU: ${p.sku||'-'}</small></td>
-      <td>৳${p.sale_price || p.price}${p.sale_price ? `<br><small style="text-decoration:line-through;color:#999">৳${p.price}</small>` : ''}</td>
+      <td>TK ${p.sale_price || p.price}${p.sale_price ? `<br><small style="text-decoration:line-through;color:#999">TK ${p.price}</small>` : ''}</td>
       <td style="color:${p.stock<=p.low_stock_alert?'#dc2626':'#16a34a'}">${p.stock}</td>
       <td>${p.category_name || '-'}</td>
-      <td>${p.is_active ? '<span style="color:#16a34a">সক্রিয়</span>' : '<span style="color:#999">নিষ্ক্রিয়</span>'}</td>
+      <td>${p.is_active ? '<span style="color:#16a34a">Active</span>' : '<span style="color:#999">Inactive</span>'}</td>
       <td class="table-actions">
-        <button class="btn btn-sm btn-ghost" onclick="showProductForm(${p.id})">এডিট</button>
-        <button class="btn btn-sm btn-danger" onclick="if(confirm('ডিলিট?'))deleteProduct(${p.id})">✕</button>
+        <button class="btn btn-sm btn-ghost" onclick="showProductForm(${p.id})">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteProduct(${p.id})">✕</button>
       </td>
     </tr>`).join('')}</tbody></table>`;
 
-    let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="productsPage--;fetchProducts()">← আগে</button><span>পেজ ${data.page}/${data.pages||1}</span><button ${data.page>=data.pages?'disabled':''} onclick="productsPage++;fetchProducts()">পরে →</button>`;
+    let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="productsPage--;fetchProducts()">← Prev</button><span>Page ${data.page}/${data.pages||1}</span><button ${data.page>=data.pages?'disabled':''} onclick="productsPage++;fetchProducts()">Next →</button>`;
     document.getElementById('productsPagination').innerHTML = pagHtml;
-  } catch(e) { document.getElementById('productsTable').innerHTML = '<p style="padding:20px;color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { document.getElementById('productsTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
 }
 
 async function showProductForm(id) {
@@ -327,30 +327,30 @@ async function showProductForm(id) {
   modal.className = 'admin-modal';
   modal.onclick = function(e) { if(e.target===this) this.remove(); };
   modal.innerHTML = `<div class="admin-modal-content">
-    <div class="modal-header"><h2>${id ? 'পণ্য এডিট' : 'নতুন পণ্য'}</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <div class="modal-header"><h2>${id ? 'Edit Product' : 'New Product'}</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
     <form onsubmit="saveProduct(event, ${id || 'null'})">
       <div class="form-grid">
-        <div class="form-group"><label>পণ্যের নাম (English)</label><input id="pName" value="${product.name}" required></div>
-        <div class="form-group"><label>পণ্যের নাম (বাংলা)</label><input id="pNameBn" value="${product.name_bn||''}"></div>
-        <div class="form-group"><label>দাম (৳)</label><input type="number" id="pPrice" value="${product.price}" required></div>
-        <div class="form-group"><label>সেল দাম</label><input type="number" id="pSalePrice" value="${product.sale_price||''}"></div>
-        <div class="form-group"><label>কস্ট দাম</label><input type="number" id="pCostPrice" value="${product.cost_price||''}"></div>
+        <div class="form-group"><label>Product Name (English)</label><input id="pName" value="${product.name}" required></div>
+        <div class="form-group"><label>Product Name (Bengali)</label><input id="pNameBn" value="${product.name_bn||''}"></div>
+        <div class="form-group"><label>Price (TK)</label><input type="number" id="pPrice" value="${product.price}" required></div>
+        <div class="form-group"><label>Sale Price</label><input type="number" id="pSalePrice" value="${product.sale_price||''}"></div>
+        <div class="form-group"><label>Cost Price</label><input type="number" id="pCostPrice" value="${product.cost_price||''}"></div>
         <div class="form-group"><label>SKU</label><input id="pSku" value="${product.sku||''}"></div>
-        <div class="form-group"><label>স্টক</label><input type="number" id="pStock" value="${product.stock}"></div>
-        <div class="form-group"><label>লো স্টক সতর্কতা</label><input type="number" id="pLowStock" value="${product.low_stock_alert}"></div>
-        <div class="form-group"><label>ক্যাটেগরি</label><select id="pCategory"><option value="">নির্বাচন করুন</option>${cats.map(c=>`<option value="${c.id}" ${c.id==product.category_id?'selected':''}>${c.name_bn||c.name}</option>`).join('')}</select></div>
-        <div class="form-group"><label>ট্যাগ</label><input id="pTags" value="${product.tags||''}"></div>
+        <div class="form-group"><label>Stock</label><input type="number" id="pStock" value="${product.stock}"></div>
+        <div class="form-group"><label>Low Stock Alert</label><input type="number" id="pLowStock" value="${product.low_stock_alert}"></div>
+        <div class="form-group"><label>Category</label><select id="pCategory"><option value="">Select</option>${cats.map(c=>`<option value="${c.id}" ${c.id==product.category_id?'selected':''}>${c.name_bn||c.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Tags</label><input id="pTags" value="${product.tags||''}"></div>
       </div>
-      <div class="form-group"><label>বিবরণ (English)</label><textarea id="pDesc" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${product.description||''}</textarea></div>
-      <div class="form-group"><label>বিবরণ (বাংলা)</label><textarea id="pDescBn" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${product.description_bn||''}</textarea></div>
-      <div class="form-group"><label>ছবি আপলোড</label><input type="file" id="pImage" accept="image/*" onchange="uploadImage(this)"><input type="hidden" id="pImageUrl" value="${product.image||''}">
+      <div class="form-group"><label>Description (English)</label><textarea id="pDesc" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${product.description||''}</textarea></div>
+      <div class="form-group"><label>Description (Bengali)</label><textarea id="pDescBn" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${product.description_bn||''}</textarea></div>
+      <div class="form-group"><label>Upload Image</label><input type="file" id="pImage" accept="image/*" onchange="uploadImage(this)"><input type="hidden" id="pImageUrl" value="${product.image||''}">
         ${product.image ? `<img src="${product.image}" style="width:60px;height:60px;border-radius:8px;object-fit:cover;margin-top:8px" id="pImagePreview">` : '<div id="pImagePreview"></div>'}
       </div>
       <div style="display:flex;gap:16px;margin-bottom:16px">
-        <label><input type="checkbox" id="pActive" ${product.is_active?'checked':''}> সক্রিয়</label>
-        <label><input type="checkbox" id="pFeatured" ${product.is_featured?'checked':''}> ফিচার্ড</label>
+        <label><input type="checkbox" id="pActive" ${product.is_active?'checked':''}> Active</label>
+        <label><input type="checkbox" id="pFeatured" ${product.is_featured?'checked':''}> Featured</label>
       </div>
-      <button type="submit" class="btn btn-primary">${id ? 'আপডেট করুন' : 'পণ্য যোগ করুন'}</button>
+      <button type="submit" class="btn btn-primary">${id ? 'Update' : 'Add Product'}</button>
     </form>
   </div>`;
   document.body.appendChild(modal);
@@ -365,7 +365,7 @@ async function uploadImage(input) {
     const data = await res.json();
     document.getElementById('pImageUrl').value = data.url;
     document.getElementById('pImagePreview').innerHTML = `<img src="${data.url}" style="width:60px;height:60px;border-radius:8px;object-fit:cover;margin-top:8px">`;
-  } catch(e) { toast('আপলোড ব্যর্থ', 'error'); }
+  } catch(e) { toast('Upload failed', 'error'); }
 }
 
 async function saveProduct(e, id) {
@@ -391,13 +391,13 @@ async function saveProduct(e, id) {
     if (id) { await api('/api/admin/products/' + id, { method: 'PUT', body: JSON.stringify(body) }); }
     else { await api('/api/admin/products', { method: 'POST', body: JSON.stringify(body) }); }
     document.querySelector('.admin-modal').remove();
-    toast(id ? 'পণ্য আপডেট হয়েছে' : 'পণ্য যোগ হয়েছে');
+    toast(id ? 'Product updated' : 'Product added');
     fetchProducts();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteProduct(id) {
-  try { await api('/api/admin/products/' + id, { method: 'DELETE' }); toast('ডিলিট হয়েছে'); fetchProducts(); }
+  try { await api('/api/admin/products/' + id, { method: 'DELETE' }); toast('Deleted'); fetchProducts(); }
   catch(e) { toast(e.message, 'error'); }
 }
 
@@ -407,12 +407,12 @@ async function loadCategories() {
   try {
     const cats = await api('/api/admin/categories');
     c.innerHTML = `<div class="table-wrap">
-      <div class="table-header"><h2>ক্যাটেগরি</h2><button class="btn btn-primary" onclick="showCategoryForm()">+ নতুন ক্যাটেগরি</button></div>
-      <table><thead><tr><th>নাম</th><th>নাম (বাংলা)</th><th>Slug</th><th>সক্রিয়</th><th>অ্যাকশন</th></tr></thead><tbody>
-      ${cats.map(c => `<tr><td>${c.name}</td><td>${c.name_bn||'-'}</td><td>${c.slug}</td><td>${c.is_active?'হ্যাঁ':'না'}</td>
-        <td class="table-actions"><button class="btn btn-sm btn-danger" onclick="if(confirm('ডিলিট?'))deleteCategory(${c.id})">✕</button></td></tr>`).join('')}
+      <div class="table-header"><h2>Categories</h2><button class="btn btn-primary" onclick="showCategoryForm()">+ New Category</button></div>
+      <table><thead><tr><th>Name</th><th>Name (Bengali)</th><th>Slug</th><th>Active</th><th>Action</th></tr></thead><tbody>
+      ${cats.map(c => `<tr><td>${c.name}</td><td>${c.name_bn||'-'}</td><td>${c.slug}</td><td>${c.is_active?'Yes':'No'}</td>
+        <td class="table-actions"><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteCategory(${c.id})">✕</button></td></tr>`).join('')}
       </tbody></table></div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
 function showCategoryForm() {
@@ -420,11 +420,11 @@ function showCategoryForm() {
   modal.className = 'admin-modal';
   modal.onclick = function(e) { if(e.target===this) this.remove(); };
   modal.innerHTML = `<div class="admin-modal-content" style="max-width:400px">
-    <div class="modal-header"><h2>নতুন ক্যাটেগরি</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <div class="modal-header"><h2>New Category</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
     <form onsubmit="saveCategory(event)">
-      <div class="form-group"><label>নাম (English)</label><input id="catName" required></div>
-      <div class="form-group"><label>নাম (বাংলা)</label><input id="catNameBn"></div>
-      <button type="submit" class="btn btn-primary">যোগ করুন</button>
+      <div class="form-group"><label>Name (English)</label><input id="catName" required></div>
+      <div class="form-group"><label>Name (Bengali)</label><input id="catNameBn"></div>
+      <button type="submit" class="btn btn-primary">Add</button>
     </form></div>`;
   document.body.appendChild(modal);
 }
@@ -434,13 +434,13 @@ async function saveCategory(e) {
   try {
     await api('/api/admin/categories', { method: 'POST', body: JSON.stringify({ name: document.getElementById('catName').value, name_bn: document.getElementById('catNameBn').value }) });
     document.querySelector('.admin-modal').remove();
-    toast('ক্যাটেগরি যোগ হয়েছে');
+    toast('Category added');
     loadCategories();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteCategory(id) {
-  try { await api('/api/admin/categories/' + id, { method: 'DELETE' }); toast('ডিলিট হয়েছে'); loadCategories(); }
+  try { await api('/api/admin/categories/' + id, { method: 'DELETE' }); toast('Deleted'); loadCategories(); }
   catch(e) { toast(e.message, 'error'); }
 }
 
@@ -450,7 +450,7 @@ let customersPage = 1;
 async function loadCustomers() {
   const c = document.getElementById('pageContent');
   c.innerHTML = `<div class="table-wrap">
-    <div class="table-header"><div class="search-bar"><input type="text" placeholder="গ্রাহক খুঁজুন..." id="custSearch" onkeyup="if(event.key==='Enter')fetchCustomers()"></div></div>
+    <div class="table-header"><div class="search-bar"><input type="text" placeholder="Search customers..." id="custSearch" onkeyup="if(event.key==='Enter')fetchCustomers()"></div></div>
     <div id="customersTable"></div>
     <div class="pagination" id="customersPagination"></div>
   </div>`;
@@ -461,12 +461,12 @@ async function fetchCustomers() {
   try {
     const search = document.getElementById('custSearch')?.value || '';
     const data = await api(`/api/admin/customers?page=${customersPage}&search=${search}`);
-    document.getElementById('customersTable').innerHTML = `<table><thead><tr><th>নাম</th><th>ফোন</th><th>ঠিকানা</th><th>অর্ডার</th><th>মোট খরচ</th><th>ফ্রড স্কোর</th><th>অ্যাকশন</th></tr></thead><tbody>
+    document.getElementById('customersTable').innerHTML = `<table><thead><tr><th>Name</th><th>Phone</th><th>Address</th><th>Orders</th><th>Total Spent</th><th>Fraud Score</th><th>Action</th></tr></thead><tbody>
     ${data.customers.map(c => `<tr>
-      <td><strong>${c.name}</strong>${c.is_blocked?'<span style="color:red;font-size:11px"> (ব্লক)</span>':''}</td>
-      <td>${c.phone}</td><td>${c.address||'-'}</td><td>${c.total_orders}</td><td>৳${c.total_spent}</td>
+      <td><strong>${c.name}</strong>${c.is_blocked?'<span style="color:red;font-size:11px"> (Blocked)</span>':''}</td>
+      <td>${c.phone}</td><td>${c.address||'-'}</td><td>${c.total_orders}</td><td>TK ${c.total_spent}</td>
       <td style="color:${c.fraud_score>50?'#dc2626':c.fraud_score>20?'#f59e0b':'#16a34a'}">${c.fraud_score}</td>
-      <td class="table-actions"><button class="btn btn-sm btn-ghost" onclick="viewCustomer(${c.id})">বিস্তারিত</button></td>
+      <td class="table-actions"><button class="btn btn-sm btn-ghost" onclick="viewCustomer(${c.id})">Details</button></td>
     </tr>`).join('')}</tbody></table>`;
   } catch(e) {}
 }
@@ -481,33 +481,33 @@ async function viewCustomer(id) {
     modal.innerHTML = `<div class="admin-modal-content">
       <div class="modal-header"><h2>${c.name}</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
       <div class="order-detail-grid">
-        <div class="detail-box"><h4>তথ্য</h4>
-          <div class="detail-row"><span>ফোন:</span><span>${c.phone}</span></div>
-          <div class="detail-row"><span>ঠিকানা:</span><span>${c.address||'-'}</span></div>
-          <div class="detail-row"><span>মোট অর্ডার:</span><span>${c.total_orders}</span></div>
-          <div class="detail-row"><span>মোট খরচ:</span><span>৳${c.total_spent}</span></div>
-          <div class="detail-row"><span>ফ্রড স্কোর:</span><span>${c.fraud_score}</span></div>
+        <div class="detail-box"><h4>Info</h4>
+          <div class="detail-row"><span>Phone:</span><span>${c.phone}</span></div>
+          <div class="detail-row"><span>Address:</span><span>${c.address||'-'}</span></div>
+          <div class="detail-row"><span>Total Orders:</span><span>${c.total_orders}</span></div>
+          <div class="detail-row"><span>Total Spent:</span><span>TK ${c.total_spent}</span></div>
+          <div class="detail-row"><span>Fraud Score:</span><span>${c.fraud_score}</span></div>
         </div>
-        <div class="detail-box"><h4>অ্যাকশন</h4>
-          <div class="form-group"><label>নোট</label><textarea id="custNotes" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:inherit">${c.notes||''}</textarea></div>
-          <label><input type="checkbox" id="custBlocked" ${c.is_blocked?'checked':''}> ব্লক করুন</label>
-          <button class="btn btn-primary" style="margin-top:12px" onclick="updateCustomer(${c.id})">সেভ</button>
+        <div class="detail-box"><h4>Actions</h4>
+          <div class="form-group"><label>Notes</label><textarea id="custNotes" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:inherit">${c.notes||''}</textarea></div>
+          <label><input type="checkbox" id="custBlocked" ${c.is_blocked?'checked':''}> Block Customer</label>
+          <button class="btn btn-primary" style="margin-top:12px" onclick="updateCustomer(${c.id})">Save</button>
         </div>
       </div>
-      <h4 style="margin:16px 0 8px">অর্ডার ইতিহাস</h4>
-      <table><thead><tr><th>অর্ডার</th><th>মোট</th><th>স্ট্যাটাস</th><th>তারিখ</th></tr></thead><tbody>
-      ${data.orders.map(o => `<tr><td>${o.order_number}</td><td>৳${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td><td>${new Date(o.created_at).toLocaleDateString('bn-BD')}</td></tr>`).join('')}
+      <h4 style="margin:16px 0 8px">Order History</h4>
+      <table><thead><tr><th>Order</th><th>Total</th><th>Status</th><th>Date</th></tr></thead><tbody>
+      ${data.orders.map(o => `<tr><td>${o.order_number}</td><td>TK ${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td><td>${new Date(o.created_at).toLocaleDateString('en-US')}</td></tr>`).join('')}
       </tbody></table>
     </div>`;
     document.body.appendChild(modal);
-  } catch(e) { toast('লোড ব্যর্থ', 'error'); }
+  } catch(e) { toast('Load failed', 'error'); }
 }
 
 async function updateCustomer(id) {
   try {
     await api('/api/admin/customers/' + id, { method: 'PUT', body: JSON.stringify({ notes: document.getElementById('custNotes').value, is_blocked: document.getElementById('custBlocked').checked ? 1 : 0 }) });
     document.querySelector('.admin-modal').remove();
-    toast('আপডেট হয়েছে');
+    toast('Updated');
     fetchCustomers();
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -518,15 +518,15 @@ async function loadCoupons() {
   try {
     const coupons = await api('/api/admin/coupons');
     c.innerHTML = `<div class="table-wrap">
-      <div class="table-header"><h2>কুপন</h2><button class="btn btn-primary" onclick="showCouponForm()">+ নতুন কুপন</button></div>
-      <table><thead><tr><th>কোড</th><th>ধরন</th><th>মান</th><th>ন্যূনতম</th><th>ব্যবহার</th><th>মেয়াদ</th><th>অ্যাকশন</th></tr></thead><tbody>
+      <div class="table-header"><h2>Coupons</h2><button class="btn btn-primary" onclick="showCouponForm()">+ New Coupon</button></div>
+      <table><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Minimum</th><th>Usage</th><th>Expires</th><th>Action</th></tr></thead><tbody>
       ${coupons.map(cp => `<tr>
-        <td><strong>${cp.code}</strong></td><td>${cp.type==='percent'?'শতাংশ':'নির্দিষ্ট'}</td>
-        <td>${cp.type==='percent'?cp.value+'%':'৳'+cp.value}</td><td>৳${cp.min_order}</td>
-        <td>${cp.used_count}${cp.max_uses?'/'+cp.max_uses:''}</td><td>${cp.expires_at||'কোনো সীমা নেই'}</td>
-        <td><button class="btn btn-sm btn-danger" onclick="if(confirm('ডিলিট?'))deleteCoupon(${cp.id})">✕</button></td>
+        <td><strong>${cp.code}</strong></td><td>${cp.type==='percent'?'Percentage':'Fixed'}</td>
+        <td>${cp.type==='percent'?cp.value+'%':'TK '+cp.value}</td><td>TK ${cp.min_order}</td>
+        <td>${cp.used_count}${cp.max_uses?'/'+cp.max_uses:''}</td><td>${cp.expires_at||'No limit'}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteCoupon(${cp.id})">✕</button></td>
       </tr>`).join('')}</tbody></table></div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
 function showCouponForm() {
@@ -534,17 +534,17 @@ function showCouponForm() {
   modal.className = 'admin-modal';
   modal.onclick = function(e) { if(e.target===this) this.remove(); };
   modal.innerHTML = `<div class="admin-modal-content" style="max-width:450px">
-    <div class="modal-header"><h2>নতুন কুপন</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <div class="modal-header"><h2>New Coupon</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
     <form onsubmit="saveCoupon(event)">
-      <div class="form-group"><label>কুপন কোড</label><input id="cpCode" required placeholder="SAVE20"></div>
+      <div class="form-group"><label>Coupon Code</label><input id="cpCode" required placeholder="SAVE20"></div>
       <div class="form-grid">
-        <div class="form-group"><label>ধরন</label><select id="cpType"><option value="fixed">নির্দিষ্ট (৳)</option><option value="percent">শতাংশ (%)</option></select></div>
-        <div class="form-group"><label>মান</label><input type="number" id="cpValue" required></div>
-        <div class="form-group"><label>ন্যূনতম অর্ডার</label><input type="number" id="cpMin" value="0"></div>
-        <div class="form-group"><label>সর্বোচ্চ ব্যবহার</label><input type="number" id="cpMax" placeholder="সীমাহীন"></div>
+        <div class="form-group"><label>Type</label><select id="cpType"><option value="fixed">Fixed (TK)</option><option value="percent">Percentage (%)</option></select></div>
+        <div class="form-group"><label>Value</label><input type="number" id="cpValue" required></div>
+        <div class="form-group"><label>Minimum Order</label><input type="number" id="cpMin" value="0"></div>
+        <div class="form-group"><label>Max Uses</label><input type="number" id="cpMax" placeholder="Unlimited"></div>
       </div>
-      <div class="form-group"><label>মেয়াদ শেষ</label><input type="date" id="cpExpires"></div>
-      <button type="submit" class="btn btn-primary">কুপন তৈরি করুন</button>
+      <div class="form-group"><label>Expiry Date</label><input type="date" id="cpExpires"></div>
+      <button type="submit" class="btn btn-primary">Create Coupon</button>
     </form></div>`;
   document.body.appendChild(modal);
 }
@@ -561,13 +561,13 @@ async function saveCoupon(e) {
       expires_at: document.getElementById('cpExpires').value || null
     })});
     document.querySelector('.admin-modal').remove();
-    toast('কুপন তৈরি হয়েছে');
+    toast('Coupon created');
     loadCoupons();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteCoupon(id) {
-  try { await api('/api/admin/coupons/' + id, { method: 'DELETE' }); toast('ডিলিট হয়েছে'); loadCoupons(); }
+  try { await api('/api/admin/coupons/' + id, { method: 'DELETE' }); toast('Deleted'); loadCoupons(); }
   catch(e) { toast(e.message, 'error'); }
 }
 
@@ -578,17 +578,17 @@ async function loadExpenses() {
   try {
     const data = await api('/api/admin/expenses?month=' + currentMonth);
     c.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">
-      <div><strong>মোট খরচ (${currentMonth}):</strong> ৳${data.total}</div>
+      <div><strong>Total Expenses (${currentMonth}):</strong> TK ${data.total}</div>
       <div style="display:flex;gap:8px">
         <input type="month" id="expMonth" value="${currentMonth}" onchange="reloadExpenses()">
-        <button class="btn btn-primary" onclick="showExpenseForm()">+ খরচ যোগ করুন</button>
+        <button class="btn btn-primary" onclick="showExpenseForm()">+ Add Expense</button>
       </div>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>তারিখ</th><th>ক্যাটেগরি</th><th>পরিমাণ</th><th>বিবরণ</th><th>অ্যাকশন</th></tr></thead><tbody>
-    ${data.expenses.map(e => `<tr><td>${e.date}</td><td>${e.category}</td><td>৳${e.amount}</td><td>${e.description||'-'}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="if(confirm('ডিলিট?'))deleteExpense(${e.id})">✕</button></td></tr>`).join('')}
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Description</th><th>Action</th></tr></thead><tbody>
+    ${data.expenses.map(e => `<tr><td>${e.date}</td><td>${e.category}</td><td>TK ${e.amount}</td><td>${e.description||'-'}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteExpense(${e.id})">✕</button></td></tr>`).join('')}
     </tbody></table></div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
 async function reloadExpenses() {
@@ -604,13 +604,13 @@ function showExpenseForm() {
   modal.className = 'admin-modal';
   modal.onclick = function(e) { if(e.target===this) this.remove(); };
   modal.innerHTML = `<div class="admin-modal-content" style="max-width:400px">
-    <div class="modal-header"><h2>খরচ যোগ</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <div class="modal-header"><h2>Add Expense</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
     <form onsubmit="saveExpense(event)">
-      <div class="form-group"><label>ক্যাটেগরি</label><select id="expCat"><option>কুরিয়ার</option><option>বিজ্ঞাপন</option><option>পণ্য কেনা</option><option>অফিস</option><option>বেতন</option><option>অন্যান্য</option></select></div>
-      <div class="form-group"><label>পরিমাণ (৳)</label><input type="number" id="expAmount" required></div>
-      <div class="form-group"><label>বিবরণ</label><input id="expDesc"></div>
-      <div class="form-group"><label>তারিখ</label><input type="date" id="expDate" value="${new Date().toISOString().split('T')[0]}"></div>
-      <button type="submit" class="btn btn-primary">সেভ করুন</button>
+      <div class="form-group"><label>Category</label><select id="expCat"><option>Courier</option><option>Advertising</option><option>Product Purchase</option><option>Office</option><option>Salary</option><option>Other</option></select></div>
+      <div class="form-group"><label>Amount (TK)</label><input type="number" id="expAmount" required></div>
+      <div class="form-group"><label>Description</label><input id="expDesc"></div>
+      <div class="form-group"><label>Date</label><input type="date" id="expDate" value="${new Date().toISOString().split('T')[0]}"></div>
+      <button type="submit" class="btn btn-primary">Save</button>
     </form></div>`;
   document.body.appendChild(modal);
 }
@@ -625,13 +625,13 @@ async function saveExpense(e) {
       date: document.getElementById('expDate').value
     })});
     document.querySelector('.admin-modal').remove();
-    toast('খরচ যোগ হয়েছে');
+    toast('Expense added');
     loadExpenses();
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteExpense(id) {
-  try { await api('/api/admin/expenses/' + id, { method: 'DELETE' }); toast('ডিলিট হয়েছে'); loadExpenses(); }
+  try { await api('/api/admin/expenses/' + id, { method: 'DELETE' }); toast('Deleted'); loadExpenses(); }
   catch(e) { toast(e.message, 'error'); }
 }
 
@@ -646,21 +646,592 @@ async function loadReports() {
 
     c.innerHTML = `
     <div class="chart-box">
-      <h3>দৈনিক বিক্রি (সাম্প্রতিক)</h3>
+      <h3>Daily Sales (Recent)</h3>
       <div class="chart-bars">
         ${sales.slice(0, 14).reverse().map(day => {
           const h = Math.max((day.revenue / maxRev) * 130, 4);
-          return `<div class="chart-bar" style="height:${h}px"><span class="chart-bar-val">৳${day.revenue}</span><span class="chart-bar-label">${day.period.slice(5)}</span></div>`;
+          return `<div class="chart-bar" style="height:${h}px"><span class="chart-bar-val">TK ${day.revenue}</span><span class="chart-bar-label">${day.period.slice(5)}</span></div>`;
         }).join('')}
       </div>
     </div>
     <div class="table-wrap">
-      <div class="table-header"><h2>টপ পণ্য</h2></div>
-      <table><thead><tr><th>পণ্য</th><th>মোট বিক্রি</th><th>মোট আয়</th></tr></thead><tbody>
-      ${topProducts.map(p => `<tr><td>${p.product_name}</td><td>${p.total_sold}টি</td><td>৳${p.total_revenue}</td></tr>`).join('')}
+      <div class="table-header"><h2>Top Products</h2></div>
+      <table><thead><tr><th>Product</th><th>Total Sold</th><th>Total Revenue</th></tr></thead><tbody>
+      ${topProducts.map(p => `<tr><td>${p.product_name}</td><td>${p.total_sold} units</td><td>TK ${p.total_revenue}</td></tr>`).join('')}
       </tbody></table>
     </div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
+}
+
+// ===== FRAUD PROTECTION =====
+let fraudTab = 'dashboard';
+let fraudBlockedPage = 1;
+let fraudBlockedType = '';
+let fraudAttemptsPage = 1;
+let fraudAttemptsReason = '';
+
+async function loadFraudPage() {
+  const c = document.getElementById('pageContent');
+  c.innerHTML = `
+    <div class="fraud-tabs">
+      <button class="fraud-tab ${fraudTab==='dashboard'?'active':''}" onclick="fraudTab='dashboard';loadFraudPage()">Dashboard</button>
+      <button class="fraud-tab ${fraudTab==='blocked'?'active':''}" onclick="fraudTab='blocked';loadFraudPage()">Blocked List</button>
+      <button class="fraud-tab ${fraudTab==='attempts'?'active':''}" onclick="fraudTab='attempts';loadFraudPage()">Block Attempts</button>
+      <button class="fraud-tab ${fraudTab==='settings'?'active':''}" onclick="fraudTab='settings';loadFraudPage()">Fraud Settings</button>
+      <button class="fraud-tab ${fraudTab==='otp'?'active':''}" onclick="fraudTab='otp';loadFraudPage()">OTP Settings</button>
+      <button class="fraud-tab ${fraudTab==='message'?'active':''}" onclick="fraudTab='message';loadFraudPage()">Block Message</button>
+    </div>
+    <div id="fraudContent"></div>`;
+
+  const loaders = {
+    dashboard: loadFraudDashboard,
+    blocked: loadFraudBlocked,
+    attempts: loadFraudAttempts,
+    settings: loadFraudSettings,
+    otp: loadFraudOtpSettings,
+    message: loadFraudBlockMessage
+  };
+  if (loaders[fraudTab]) loaders[fraudTab]();
+}
+
+async function loadFraudDashboard() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = '<p>Loading...</p>';
+
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const to = now.toISOString().split('T')[0];
+
+  try {
+    const d = await api(`/api/admin/fraud/dashboard?from=${from}&to=${to}`);
+
+    const totalBlocks = (d.stats?.total_blocks) || 0;
+    const phoneBlocks = (d.stats?.phone_blocks) || 0;
+    const ipBlocks = (d.stats?.ip_blocks) || 0;
+    const fingerprintBlocks = (d.stats?.fingerprint_blocks) || 0;
+    const recentBlocks = d.recent_blocks || [];
+    const topIPs = d.top_ips || [];
+    const topPhones = d.top_phones || [];
+
+    // Build chart from daily data if available
+    const dailyData = d.daily || [];
+    const maxBlk = Math.max(...dailyData.map(x => x.count || 0), 1);
+
+    fc.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card" style="border-left:4px solid #dc2626"><div class="label">Total Blocks (This Month)</div><div class="value" style="color:#dc2626">${totalBlocks}</div></div>
+      <div class="stat-card" style="border-left:4px solid #f59e0b"><div class="label">Phone Blocks</div><div class="value" style="color:#f59e0b">${phoneBlocks}</div></div>
+      <div class="stat-card" style="border-left:4px solid #3b82f6"><div class="label">IP Blocks</div><div class="value" style="color:#3b82f6">${ipBlocks}</div></div>
+      <div class="stat-card" style="border-left:4px solid #8b5cf6"><div class="label">Fingerprint Blocks</div><div class="value" style="color:#8b5cf6">${fingerprintBlocks}</div></div>
+    </div>
+
+    ${dailyData.length > 0 ? `<div class="chart-box">
+      <h3>Daily Blocks (This Month)</h3>
+      <div class="chart-bars">
+        ${dailyData.map(day => {
+          const h = Math.max(((day.count || 0) / maxBlk) * 130, 4);
+          return `<div class="chart-bar" style="height:${h}px;background:#dc2626"><span class="chart-bar-val">${day.count || 0}</span><span class="chart-bar-label">${(day.date || '').slice(5)}</span></div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="table-wrap">
+        <div class="table-header"><h2>Top Blocked IPs</h2></div>
+        <table><thead><tr><th>IP Address</th><th>Block Count</th></tr></thead><tbody>
+        ${topIPs.length === 0 ? '<tr><td colspan="2" style="text-align:center;color:#999;padding:20px">No data</td></tr>' :
+          topIPs.map(ip => `<tr><td><code>${ip.value || ip.ip}</code></td><td>${ip.count}</td></tr>`).join('')}
+        </tbody></table>
+      </div>
+      <div class="table-wrap">
+        <div class="table-header"><h2>Top Blocked Phones</h2></div>
+        <table><thead><tr><th>Phone Number</th><th>Block Count</th></tr></thead><tbody>
+        ${topPhones.length === 0 ? '<tr><td colspan="2" style="text-align:center;color:#999;padding:20px">No data</td></tr>' :
+          topPhones.map(ph => `<tr><td>${ph.value || ph.phone}</td><td>${ph.count}</td></tr>`).join('')}
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:20px">
+      <div class="table-header"><h2>Recent Blocks</h2></div>
+      <table><thead><tr><th>Type</th><th>Value</th><th>Reason</th><th>Date</th></tr></thead><tbody>
+      ${recentBlocks.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#999;padding:20px">No recent blocks</td></tr>' :
+        recentBlocks.map(b => `<tr>
+          <td><span class="fraud-type-badge fraud-type-${b.type}">${b.type}</span></td>
+          <td><code>${b.value}</code></td>
+          <td>${b.reason || '-'}</td>
+          <td>${b.created_at ? new Date(b.created_at).toLocaleString('en-US') : '-'}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  } catch(e) { fc.innerHTML = '<p style="color:red">Failed to load fraud dashboard</p>'; }
+}
+
+async function loadFraudBlocked() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="search-bar">
+          <select id="fraudBlockedTypeFilter" onchange="fraudBlockedType=this.value;fraudBlockedPage=1;fetchFraudBlocked()">
+            <option value="">All Types</option>
+            <option value="phone" ${fraudBlockedType==='phone'?'selected':''}>Phone</option>
+            <option value="ip" ${fraudBlockedType==='ip'?'selected':''}>IP</option>
+            <option value="fingerprint" ${fraudBlockedType==='fingerprint'?'selected':''}>Fingerprint</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="showAddBlockForm()">+ Add Block</button>
+      </div>
+      <div id="fraudBlockedTable"></div>
+      <div class="pagination" id="fraudBlockedPagination"></div>
+    </div>`;
+  fetchFraudBlocked();
+}
+
+async function fetchFraudBlocked() {
+  try {
+    const params = new URLSearchParams({ page: fraudBlockedPage });
+    if (fraudBlockedType) params.set('type', fraudBlockedType);
+    const data = await api('/api/admin/fraud/blocked?' + params);
+    const entries = data.blocked || data.entries || [];
+    const pages = data.pages || 1;
+    const page = data.page || 1;
+
+    document.getElementById('fraudBlockedTable').innerHTML = `<table><thead><tr><th>Type</th><th>Value</th><th>Reason</th><th>Duration</th><th>Expires</th><th>Created</th><th>Action</th></tr></thead><tbody>
+    ${entries.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">No blocked entries</td></tr>' :
+      entries.map(b => `<tr>
+        <td><span class="fraud-type-badge fraud-type-${b.type}">${b.type}</span></td>
+        <td><code>${b.value}</code></td>
+        <td>${b.reason || '-'}</td>
+        <td>${b.duration_hours ? b.duration_hours + 'h' : 'Permanent'}</td>
+        <td>${b.expires_at ? new Date(b.expires_at).toLocaleString('en-US') : 'Never'}</td>
+        <td>${b.created_at ? new Date(b.created_at).toLocaleString('en-US') : '-'}</td>
+        <td class="table-actions"><button class="btn btn-sm btn-danger" onclick="if(confirm('Remove this block?'))removeFraudBlock(${b.id})">Remove</button></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+
+    let pagHtml = `<button ${page<=1?'disabled':''} onclick="fraudBlockedPage--;fetchFraudBlocked()">← Prev</button>`;
+    pagHtml += `<span>Page ${page} / ${pages}</span>`;
+    pagHtml += `<button ${page>=pages?'disabled':''} onclick="fraudBlockedPage++;fetchFraudBlocked()">Next →</button>`;
+    document.getElementById('fraudBlockedPagination').innerHTML = pagHtml;
+  } catch(e) { document.getElementById('fraudBlockedTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
+}
+
+function showAddBlockForm() {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:450px">
+    <div class="modal-header"><h2>Add Block</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <form onsubmit="saveNewBlock(event)">
+      <div class="form-group">
+        <label>Block Type</label>
+        <select id="blockType" required>
+          <option value="phone">Phone Number</option>
+          <option value="ip">IP Address</option>
+          <option value="fingerprint">Browser Fingerprint</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Value</label>
+        <input id="blockValue" required placeholder="Phone number, IP address, or fingerprint hash">
+      </div>
+      <div class="form-group">
+        <label>Reason</label>
+        <input id="blockReason" placeholder="Reason for blocking (optional)">
+      </div>
+      <div class="form-group">
+        <label>Duration (hours)</label>
+        <input type="number" id="blockDuration" placeholder="Leave empty for permanent block" min="1">
+        <small style="color:#888">Leave empty to block permanently</small>
+      </div>
+      <button type="submit" class="btn btn-primary">Add Block</button>
+    </form>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveNewBlock(e) {
+  e.preventDefault();
+  try {
+    const body = {
+      type: document.getElementById('blockType').value,
+      value: document.getElementById('blockValue').value,
+      reason: document.getElementById('blockReason').value || null,
+      duration_hours: document.getElementById('blockDuration').value ? Number(document.getElementById('blockDuration').value) : null
+    };
+    await api('/api/admin/fraud/blocked', { method: 'POST', body: JSON.stringify(body) });
+    document.querySelector('.admin-modal').remove();
+    toast('Block added');
+    fetchFraudBlocked();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function removeFraudBlock(id) {
+  try {
+    await api('/api/admin/fraud/blocked/' + id, { method: 'DELETE' });
+    toast('Block removed');
+    fetchFraudBlocked();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadFraudAttempts() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="search-bar">
+          <select id="fraudAttemptsReasonFilter" onchange="fraudAttemptsReason=this.value;fraudAttemptsPage=1;fetchFraudAttempts()">
+            <option value="">All Reasons</option>
+            <option value="duplicate_order" ${fraudAttemptsReason==='duplicate_order'?'selected':''}>Duplicate Order</option>
+            <option value="blocked_phone" ${fraudAttemptsReason==='blocked_phone'?'selected':''}>Blocked Phone</option>
+            <option value="blocked_ip" ${fraudAttemptsReason==='blocked_ip'?'selected':''}>Blocked IP</option>
+            <option value="blocked_fingerprint" ${fraudAttemptsReason==='blocked_fingerprint'?'selected':''}>Blocked Fingerprint</option>
+            <option value="rate_limit" ${fraudAttemptsReason==='rate_limit'?'selected':''}>Rate Limit</option>
+            <option value="otp_failed" ${fraudAttemptsReason==='otp_failed'?'selected':''}>OTP Failed</option>
+          </select>
+        </div>
+        <button class="btn btn-danger" onclick="if(confirm('Clear all block attempt logs?'))clearFraudAttempts()">Clear Log</button>
+      </div>
+      <div id="fraudAttemptsTable"></div>
+      <div class="pagination" id="fraudAttemptsPagination"></div>
+    </div>`;
+  fetchFraudAttempts();
+}
+
+async function fetchFraudAttempts() {
+  try {
+    const params = new URLSearchParams({ page: fraudAttemptsPage });
+    if (fraudAttemptsReason) params.set('reason', fraudAttemptsReason);
+    const data = await api('/api/admin/fraud/attempts?' + params);
+    const attempts = data.attempts || data.entries || [];
+    const pages = data.pages || 1;
+    const page = data.page || 1;
+
+    document.getElementById('fraudAttemptsTable').innerHTML = `<table><thead><tr><th>Date</th><th>Reason</th><th>Phone</th><th>IP Address</th><th>Details</th></tr></thead><tbody>
+    ${attempts.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">No block attempts recorded</td></tr>' :
+      attempts.map(a => `<tr>
+        <td>${a.created_at ? new Date(a.created_at).toLocaleString('en-US') : '-'}</td>
+        <td><span class="fraud-reason-badge">${(a.reason || '').replace(/_/g, ' ')}</span></td>
+        <td>${a.phone || '-'}</td>
+        <td><code>${a.ip || '-'}</code></td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.details || '').replace(/"/g, '&quot;')}">${a.details || '-'}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+
+    let pagHtml = `<button ${page<=1?'disabled':''} onclick="fraudAttemptsPage--;fetchFraudAttempts()">← Prev</button>`;
+    pagHtml += `<span>Page ${page} / ${pages}</span>`;
+    pagHtml += `<button ${page>=pages?'disabled':''} onclick="fraudAttemptsPage++;fetchFraudAttempts()">Next →</button>`;
+    document.getElementById('fraudAttemptsPagination').innerHTML = pagHtml;
+  } catch(e) { document.getElementById('fraudAttemptsTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
+}
+
+async function clearFraudAttempts() {
+  try {
+    await api('/api/admin/fraud/attempts/clear', { method: 'DELETE' });
+    toast('Attempt log cleared');
+    fetchFraudAttempts();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadFraudSettings() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = '<p>Loading...</p>';
+  try {
+    const s = await api('/api/admin/settings');
+    fc.innerHTML = `<form onsubmit="saveFraudSettings(event)">
+      <div class="settings-section">
+        <h3>Fraud Protection Features</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Toggle fraud protection features on or off. When a feature is disabled, the corresponding check is skipped during order placement.</p>
+        <div class="fraud-toggles">
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudEnabled" ${s.fraud_enabled==='1'?'checked':''}>
+              <strong>Master Switch — Enable Fraud Protection</strong>
+            </label>
+            <small>Turning this off disables all fraud checks</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudPhoneBlock" ${s.fraud_phone_block_enabled==='1'?'checked':''}>
+              <strong>Phone Number Blocking</strong>
+            </label>
+            <small>Block orders from specific phone numbers</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudIpBlock" ${s.fraud_ip_block_enabled==='1'?'checked':''}>
+              <strong>IP Address Blocking</strong>
+            </label>
+            <small>Block orders from specific IP addresses</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudFingerprintBlock" ${s.fraud_fingerprint_block_enabled==='1'?'checked':''}>
+              <strong>Browser Fingerprint Blocking</strong>
+            </label>
+            <small>Block orders based on browser fingerprint</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudDuplicateCheck" ${s.fraud_duplicate_check_enabled==='1'?'checked':''}>
+              <strong>Duplicate Order Detection</strong>
+            </label>
+            <small>Prevent duplicate orders from same phone within a time window</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="fraudRateLimit" ${s.fraud_rate_limit_enabled==='1'?'checked':''}>
+              <strong>Rate Limiting</strong>
+            </label>
+            <small>Limit the number of orders per phone/IP within a time period</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Fraud Thresholds</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Duplicate Window (minutes)</label>
+            <input type="number" id="fraudDuplicateWindow" value="${s.fraud_duplicate_window_minutes||30}" min="1">
+            <small style="color:#888">Time window to check for duplicate orders</small>
+          </div>
+          <div class="form-group">
+            <label>Rate Limit — Max Orders Per Hour</label>
+            <input type="number" id="fraudRateLimitMax" value="${s.fraud_rate_limit_max_per_hour||5}" min="1">
+            <small style="color:#888">Maximum orders allowed per phone/IP per hour</small>
+          </div>
+          <div class="form-group">
+            <label>Auto-Block After Failed Attempts</label>
+            <input type="number" id="fraudAutoBlockThreshold" value="${s.fraud_auto_block_threshold||10}" min="1">
+            <small style="color:#888">Auto-block after this many blocked attempts</small>
+          </div>
+          <div class="form-group">
+            <label>Auto-Block Duration (hours)</label>
+            <input type="number" id="fraudAutoBlockDuration" value="${s.fraud_auto_block_duration_hours||24}" min="1">
+            <small style="color:#888">How long auto-blocks last</small>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save Fraud Settings</button>
+    </form>`;
+  } catch(e) { fc.innerHTML = '<p style="color:red">Failed to load fraud settings</p>'; }
+}
+
+async function saveFraudSettings(e) {
+  e.preventDefault();
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
+      fraud_enabled: document.getElementById('fraudEnabled').checked ? '1' : '0',
+      fraud_phone_block_enabled: document.getElementById('fraudPhoneBlock').checked ? '1' : '0',
+      fraud_ip_block_enabled: document.getElementById('fraudIpBlock').checked ? '1' : '0',
+      fraud_fingerprint_block_enabled: document.getElementById('fraudFingerprintBlock').checked ? '1' : '0',
+      fraud_duplicate_check_enabled: document.getElementById('fraudDuplicateCheck').checked ? '1' : '0',
+      fraud_rate_limit_enabled: document.getElementById('fraudRateLimit').checked ? '1' : '0',
+      fraud_duplicate_window_minutes: document.getElementById('fraudDuplicateWindow').value,
+      fraud_rate_limit_max_per_hour: document.getElementById('fraudRateLimitMax').value,
+      fraud_auto_block_threshold: document.getElementById('fraudAutoBlockThreshold').value,
+      fraud_auto_block_duration_hours: document.getElementById('fraudAutoBlockDuration').value,
+    })});
+    toast('Fraud settings saved');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadFraudOtpSettings() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = '<p>Loading...</p>';
+  try {
+    const s = await api('/api/admin/settings');
+    fc.innerHTML = `<form onsubmit="saveOtpSettings(event)">
+      <div class="settings-section">
+        <h3>OTP Verification Settings</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Configure OTP (One-Time Password) verification for order placement. When enabled, customers must verify their phone number before placing an order.</p>
+        <div class="fraud-toggles">
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="otpEnabled" ${s.otp_enabled==='1'?'checked':''}>
+              <strong>Enable OTP Verification</strong>
+            </label>
+            <small>Require OTP verification for all orders</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="otpNewCustomersOnly" ${s.otp_new_customers_only==='1'?'checked':''}>
+              <strong>New Customers Only</strong>
+            </label>
+            <small>Only require OTP for first-time customers</small>
+          </div>
+          <div class="fraud-toggle-item">
+            <label class="fraud-toggle-label">
+              <input type="checkbox" id="otpHighValueOnly" ${s.otp_high_value_only==='1'?'checked':''}>
+              <strong>High-Value Orders Only</strong>
+            </label>
+            <small>Only require OTP for orders above the threshold</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>OTP Configuration</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>OTP Length</label>
+            <select id="otpLength">
+              <option value="4" ${s.otp_length==='4'?'selected':''}>4 digits</option>
+              <option value="5" ${s.otp_length==='5'?'selected':''}>5 digits</option>
+              <option value="6" ${(s.otp_length==='6'||!s.otp_length)?'selected':''}>6 digits</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>OTP Expiry (seconds)</label>
+            <input type="number" id="otpExpiry" value="${s.otp_expiry_seconds||300}" min="60" max="600">
+            <small style="color:#888">How long the OTP code stays valid</small>
+          </div>
+          <div class="form-group">
+            <label>Max OTP Attempts</label>
+            <input type="number" id="otpMaxAttempts" value="${s.otp_max_attempts||3}" min="1" max="10">
+            <small style="color:#888">Max wrong attempts before OTP is invalidated</small>
+          </div>
+          <div class="form-group">
+            <label>Resend Cooldown (seconds)</label>
+            <input type="number" id="otpResendCooldown" value="${s.otp_resend_cooldown||60}" min="30" max="300">
+            <small style="color:#888">Minimum wait time before resending OTP</small>
+          </div>
+          <div class="form-group">
+            <label>High-Value Order Threshold (TK)</label>
+            <input type="number" id="otpHighValueThreshold" value="${s.otp_high_value_threshold||5000}" min="0">
+            <small style="color:#888">OTP required for orders above this amount</small>
+          </div>
+          <div class="form-group">
+            <label>SMS Provider</label>
+            <select id="otpSmsProvider">
+              <option value="bulksmsbd" ${s.otp_sms_provider==='bulksmsbd'?'selected':''}>BulkSMSBD</option>
+              <option value="smsnet24" ${s.otp_sms_provider==='smsnet24'?'selected':''}>SMSNet24</option>
+              <option value="custom" ${s.otp_sms_provider==='custom'?'selected':''}>Custom API</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>SMS API Configuration</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>SMS API Key</label>
+            <input id="otpSmsApiKey" value="${s.otp_sms_api_key||''}" placeholder="Your SMS API key">
+          </div>
+          <div class="form-group">
+            <label>SMS Sender ID</label>
+            <input id="otpSmsSenderId" value="${s.otp_sms_sender_id||''}" placeholder="Sender ID / Mask">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>OTP Message Template</label>
+          <input id="otpMessageTemplate" value="${s.otp_message_template||'Your Rahnuma Shop verification code is: {OTP}. Valid for {MINUTES} minutes.'}" placeholder="Use {OTP} and {MINUTES} as placeholders">
+          <small style="color:#888">Use {OTP} for the code and {MINUTES} for expiry time</small>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save OTP Settings</button>
+    </form>`;
+  } catch(e) { fc.innerHTML = '<p style="color:red">Failed to load OTP settings</p>'; }
+}
+
+async function saveOtpSettings(e) {
+  e.preventDefault();
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
+      otp_enabled: document.getElementById('otpEnabled').checked ? '1' : '0',
+      otp_new_customers_only: document.getElementById('otpNewCustomersOnly').checked ? '1' : '0',
+      otp_high_value_only: document.getElementById('otpHighValueOnly').checked ? '1' : '0',
+      otp_length: document.getElementById('otpLength').value,
+      otp_expiry_seconds: document.getElementById('otpExpiry').value,
+      otp_max_attempts: document.getElementById('otpMaxAttempts').value,
+      otp_resend_cooldown: document.getElementById('otpResendCooldown').value,
+      otp_high_value_threshold: document.getElementById('otpHighValueThreshold').value,
+      otp_sms_provider: document.getElementById('otpSmsProvider').value,
+      otp_sms_api_key: document.getElementById('otpSmsApiKey').value,
+      otp_sms_sender_id: document.getElementById('otpSmsSenderId').value,
+      otp_message_template: document.getElementById('otpMessageTemplate').value,
+    })});
+    toast('OTP settings saved');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadFraudBlockMessage() {
+  const fc = document.getElementById('fraudContent');
+  fc.innerHTML = '<p>Loading...</p>';
+  try {
+    const s = await api('/api/admin/settings');
+    fc.innerHTML = `<form onsubmit="saveBlockMessageSettings(event)">
+      <div class="settings-section">
+        <h3>Block Message Customization</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Customize the error messages shown to users when their order is blocked by the fraud protection system.</p>
+
+        <div class="form-group">
+          <label>Blocked Phone Message</label>
+          <textarea id="blockMsgPhone" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_phone || 'Your phone number has been restricted from placing orders. Please contact support for assistance.'}</textarea>
+          <small style="color:#888">Shown when a blocked phone number tries to order</small>
+        </div>
+
+        <div class="form-group">
+          <label>Blocked IP Message</label>
+          <textarea id="blockMsgIp" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_ip || 'Your connection has been restricted. Please contact support for assistance.'}</textarea>
+          <small style="color:#888">Shown when a blocked IP address tries to order</small>
+        </div>
+
+        <div class="form-group">
+          <label>Blocked Fingerprint Message</label>
+          <textarea id="blockMsgFingerprint" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_fingerprint || 'Your device has been restricted from placing orders. Please contact support for assistance.'}</textarea>
+          <small style="color:#888">Shown when a blocked browser fingerprint tries to order</small>
+        </div>
+
+        <div class="form-group">
+          <label>Duplicate Order Message</label>
+          <textarea id="blockMsgDuplicate" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_duplicate || 'A similar order was already placed recently. Please wait before placing another order.'}</textarea>
+          <small style="color:#888">Shown when a duplicate order is detected</small>
+        </div>
+
+        <div class="form-group">
+          <label>Rate Limit Message</label>
+          <textarea id="blockMsgRateLimit" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_rate_limit || 'Too many orders placed in a short time. Please try again later.'}</textarea>
+          <small style="color:#888">Shown when rate limit is exceeded</small>
+        </div>
+
+        <div class="form-group">
+          <label>OTP Failed Message</label>
+          <textarea id="blockMsgOtp" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_otp_failed || 'Phone verification failed. Please verify your phone number and try again.'}</textarea>
+          <small style="color:#888">Shown when OTP verification fails</small>
+        </div>
+
+        <div class="form-group">
+          <label>Generic Block Message</label>
+          <textarea id="blockMsgGeneric" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${s.block_message_generic || 'Unable to process your order at this time. Please contact support for assistance.'}</textarea>
+          <small style="color:#888">Fallback message when no specific message matches</small>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Save Block Messages</button>
+    </form>`;
+  } catch(e) { fc.innerHTML = '<p style="color:red">Failed to load block message settings</p>'; }
+}
+
+async function saveBlockMessageSettings(e) {
+  e.preventDefault();
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
+      block_message_phone: document.getElementById('blockMsgPhone').value,
+      block_message_ip: document.getElementById('blockMsgIp').value,
+      block_message_fingerprint: document.getElementById('blockMsgFingerprint').value,
+      block_message_duplicate: document.getElementById('blockMsgDuplicate').value,
+      block_message_rate_limit: document.getElementById('blockMsgRateLimit').value,
+      block_message_otp_failed: document.getElementById('blockMsgOtp').value,
+      block_message_generic: document.getElementById('blockMsgGeneric').value,
+    })});
+    toast('Block messages saved');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 // ===== SETTINGS =====
@@ -670,51 +1241,51 @@ async function loadSettings() {
     const s = await api('/api/admin/settings');
     c.innerHTML = `<form onsubmit="saveSettings(event)">
       <div class="settings-section">
-        <h3>শপ তথ্য</h3>
+        <h3>Shop Information</h3>
         <div class="form-grid">
-          <div class="form-group"><label>শপের নাম (বাংলা)</label><input id="sShopName" value="${s.shop_name||''}"></div>
-          <div class="form-group"><label>শপের নাম (English)</label><input id="sShopNameEn" value="${s.shop_name_en||''}"></div>
-          <div class="form-group"><label>ফোন</label><input id="sPhone" value="${s.shop_phone||''}"></div>
-          <div class="form-group"><label>ইমেইল</label><input id="sEmail" value="${s.shop_email||''}"></div>
+          <div class="form-group"><label>Shop Name (Bengali)</label><input id="sShopName" value="${s.shop_name||''}"></div>
+          <div class="form-group"><label>Shop Name (English)</label><input id="sShopNameEn" value="${s.shop_name_en||''}"></div>
+          <div class="form-group"><label>Phone</label><input id="sPhone" value="${s.shop_phone||''}"></div>
+          <div class="form-group"><label>Email</label><input id="sEmail" value="${s.shop_email||''}"></div>
         </div>
-        <div class="form-group"><label>ঠিকানা</label><input id="sAddress" value="${s.shop_address||''}"></div>
+        <div class="form-group"><label>Address</label><input id="sAddress" value="${s.shop_address||''}"></div>
       </div>
 
       <div class="settings-section">
-        <h3>ডেলিভারি চার্জ</h3>
+        <h3>Delivery Charges</h3>
         <div class="form-grid">
-          <div class="form-group"><label>ঢাকার ভিতরে (৳)</label><input type="number" id="sShipIn" value="${s.shipping_inside_dhaka||60}"></div>
-          <div class="form-group"><label>ঢাকার বাইরে (৳)</label><input type="number" id="sShipOut" value="${s.shipping_outside_dhaka||120}"></div>
+          <div class="form-group"><label>Inside Dhaka (TK)</label><input type="number" id="sShipIn" value="${s.shipping_inside_dhaka||60}"></div>
+          <div class="form-group"><label>Outside Dhaka (TK)</label><input type="number" id="sShipOut" value="${s.shipping_outside_dhaka||120}"></div>
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>পেমেন্ট</h3>
+        <h3>Payment Methods</h3>
         <div class="form-grid">
-          <div class="form-group"><label><input type="checkbox" id="sCod" ${s.cod_enabled==='1'?'checked':''}> ক্যাশ অন ডেলিভারি</label></div>
+          <div class="form-group"><label><input type="checkbox" id="sCod" ${s.cod_enabled==='1'?'checked':''}> Cash on Delivery</label></div>
           <div></div>
-          <div class="form-group"><label><input type="checkbox" id="sBkash" ${s.bkash_enabled==='1'?'checked':''}> bKash</label><input id="sBkashNum" value="${s.bkash_number||''}" placeholder="bKash নম্বর" style="margin-top:6px"></div>
-          <div class="form-group"><label><input type="checkbox" id="sNagad" ${s.nagad_enabled==='1'?'checked':''}> Nagad</label><input id="sNagadNum" value="${s.nagad_number||''}" placeholder="Nagad নম্বর" style="margin-top:6px"></div>
+          <div class="form-group"><label><input type="checkbox" id="sBkash" ${s.bkash_enabled==='1'?'checked':''}> bKash</label><input id="sBkashNum" value="${s.bkash_number||''}" placeholder="bKash number" style="margin-top:6px"></div>
+          <div class="form-group"><label><input type="checkbox" id="sNagad" ${s.nagad_enabled==='1'?'checked':''}> Nagad</label><input id="sNagadNum" value="${s.nagad_number||''}" placeholder="Nagad number" style="margin-top:6px"></div>
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>সোশ্যাল মিডিয়া</h3>
+        <h3>Social Media</h3>
         <div class="form-grid">
-          <div class="form-group"><label>WhatsApp নম্বর</label><input id="sWhatsapp" value="${s.whatsapp_number||''}"></div>
-          <div class="form-group"><label>Messenger লিংক</label><input id="sMessenger" value="${s.messenger_link||''}"></div>
+          <div class="form-group"><label>WhatsApp Number</label><input id="sWhatsapp" value="${s.whatsapp_number||''}"></div>
+          <div class="form-group"><label>Messenger Link</label><input id="sMessenger" value="${s.messenger_link||''}"></div>
           <div class="form-group"><label>Facebook Page URL</label><input id="sFbPage" value="${s.facebook_page||''}"></div>
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>🚚 Steadfast Courier API</h3>
-        <p style="font-size:13px;color:#666;margin-bottom:16px">Steadfast কুরিয়ার ইন্টিগ্রেশন — অটো অর্ডার পাঠানো, স্ট্যাটাস আপডেট, অ্যাকাউন্টিং।</p>
+        <h3>Steadfast Courier API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Steadfast courier integration — auto order dispatch, status updates, accounting.</p>
         <div class="form-grid">
           <div class="form-group">
             <label>API Key</label>
             <input id="sSteadfastKey" value="${s.steadfast_api_key||''}" placeholder="Steadfast API Key">
-            <small style="color:#888">Steadfast Portal → Settings → API</small>
+            <small style="color:#888">Steadfast Portal > Settings > API</small>
           </div>
           <div class="form-group">
             <label>Secret Key</label>
@@ -725,61 +1296,61 @@ async function loadSettings() {
             <input id="sSteadfastUrl" value="${s.steadfast_base_url||'https://portal.packzy.com/api/v1'}">
           </div>
         </div>
-        <div style="margin-top:12px"><button type="button" class="btn btn-ghost" onclick="checkCourierBalance()">💰 ব্যালেন্স চেক করুন</button> <span id="courierBalance"></span></div>
+        <div style="margin-top:12px"><button type="button" class="btn btn-ghost" onclick="checkCourierBalance()">Check Balance</button> <span id="courierBalance"></span></div>
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-top:12px;font-size:13px">
-          <strong>ওয়েবহুক URL (Steadfast এ সেট করুন):</strong><br>
+          <strong>Webhook URL (set this in Steadfast):</strong><br>
           <code style="background:#e0f2e0;padding:4px 8px;border-radius:4px">${window.location.origin}/api/webhook/steadfast</code>
           <br><br>
-          <strong>অটোমেশন ফ্লো:</strong><br>
-          ✅ অর্ডার → কুরিয়ারে পাঠান (1-click)<br>
-          ✅ ডেলিভারি হলে → অটো স্ট্যাটাস আপডেট + পেমেন্ট paid<br>
-          ✅ ডেলিভারি চার্জ → অটো খরচে যোগ<br>
-          ✅ বাতিল হলে → অটো স্টক ফেরত + চার্জ খরচে
+          <strong>Automation Flow:</strong><br>
+          - Order > Send to courier (1-click)<br>
+          - On delivery > Auto status update + payment marked paid<br>
+          - Delivery charge > Auto added to expenses<br>
+          - On cancel > Auto stock restore + charge added to expenses
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>📊 Facebook Pixel & Conversion API</h3>
-        <p style="font-size:13px;color:#666;margin-bottom:16px">ক্লায়েন্ট-সাইড Pixel + সার্ভার-সাইড Conversion API (CAPI) দুটোই কাজ করবে। ডুপ্লিকেশন এড়াতে Event ID দিয়ে ডিডুপ্লিকেশন হয়।</p>
+        <h3>Facebook Pixel & Conversion API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Client-side Pixel + Server-side Conversion API (CAPI) both work. Deduplication via Event ID prevents duplicate events.</p>
         <div class="form-grid">
           <div class="form-group">
             <label>Facebook Pixel ID</label>
-            <input id="sFbPixelId" value="${s.facebook_pixel_id||''}" placeholder="যেমন: 123456789012345">
-            <small style="color:#888">Events Manager → Data Sources → Pixel ID</small>
+            <input id="sFbPixelId" value="${s.facebook_pixel_id||''}" placeholder="e.g. 123456789012345">
+            <small style="color:#888">Events Manager > Data Sources > Pixel ID</small>
           </div>
           <div class="form-group">
             <label>Conversion API Access Token</label>
             <input id="sFbAccessToken" type="password" value="${s.facebook_access_token||''}" placeholder="EAAxxxxxxx...">
-            <small style="color:#888">Events Manager → Settings → Generate Access Token</small>
+            <small style="color:#888">Events Manager > Settings > Generate Access Token</small>
           </div>
           <div class="form-group">
-            <label>Test Event Code (ঐচ্ছিক)</label>
+            <label>Test Event Code (optional)</label>
             <input id="sFbTestCode" value="${s.facebook_test_event_code||''}" placeholder="TEST12345">
-            <small style="color:#888">টেস্টিং এর সময় ব্যবহার করুন, লাইভে খালি রাখুন</small>
+            <small style="color:#888">Use during testing, leave empty for production</small>
           </div>
         </div>
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-top:12px;font-size:13px">
-          <strong>ট্র্যাকিং ইভেন্টসমূহ:</strong><br>
-          ✅ PageView — প্রতিটি পেজ ভিজিট<br>
-          ✅ ViewContent — পণ্য দেখলে<br>
-          ✅ AddToCart — কার্টে যোগ করলে<br>
-          ✅ InitiateCheckout — চেকআউট পেজে গেলে<br>
-          ✅ Purchase — অর্ডার সম্পন্ন হলে (সার্ভার-সাইড + ক্লায়েন্ট)
+          <strong>Tracking Events:</strong><br>
+          - PageView — Every page visit<br>
+          - ViewContent — When viewing a product<br>
+          - AddToCart — When adding to cart<br>
+          - InitiateCheckout — When visiting checkout page<br>
+          - Purchase — Order completed (server-side + client)
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>পাসওয়ার্ড পরিবর্তন</h3>
+        <h3>Change Password</h3>
         <div class="form-grid">
-          <div class="form-group"><label>বর্তমান পাসওয়ার্ড</label><input type="password" id="sCurPass"></div>
-          <div class="form-group"><label>নতুন পাসওয়ার্ড</label><input type="password" id="sNewPass"></div>
+          <div class="form-group"><label>Current Password</label><input type="password" id="sCurPass"></div>
+          <div class="form-group"><label>New Password</label><input type="password" id="sNewPass"></div>
         </div>
-        <button type="button" class="btn btn-ghost" onclick="changePassword()">পাসওয়ার্ড পরিবর্তন</button>
+        <button type="button" class="btn btn-ghost" onclick="changePassword()">Change Password</button>
       </div>
 
-      <button type="submit" class="btn btn-primary" style="margin-top:8px">সেটিংস সেভ করুন</button>
+      <button type="submit" class="btn btn-primary" style="margin-top:8px">Save Settings</button>
     </form>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">লোড ব্যর্থ</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
 async function saveSettings(e) {
@@ -808,17 +1379,17 @@ async function saveSettings(e) {
       facebook_access_token: document.getElementById('sFbAccessToken').value,
       facebook_test_event_code: document.getElementById('sFbTestCode').value,
     })});
-    toast('সেটিংস সেভ হয়েছে');
+    toast('Settings saved');
   } catch(e) { toast(e.message, 'error'); }
 }
 
 async function changePassword() {
   const cur = document.getElementById('sCurPass').value;
   const nw = document.getElementById('sNewPass').value;
-  if (!cur || !nw) { toast('দুটি ফিল্ডই পূরণ করুন', 'error'); return; }
+  if (!cur || !nw) { toast('Please fill both fields', 'error'); return; }
   try {
     await api('/api/admin/password', { method: 'PUT', body: JSON.stringify({ current_password: cur, new_password: nw }) });
-    toast('পাসওয়ার্ড পরিবর্তন হয়েছে');
+    toast('Password changed');
     document.getElementById('sCurPass').value = '';
     document.getElementById('sNewPass').value = '';
   } catch(e) { toast(e.message, 'error'); }
@@ -826,10 +1397,10 @@ async function changePassword() {
 
 async function checkCourierBalance() {
   const el = document.getElementById('courierBalance');
-  el.textContent = 'চেক হচ্ছে...';
+  el.textContent = 'Checking...';
   try {
     const data = await api('/api/admin/courier/balance');
-    el.innerHTML = `<strong style="color:#16a34a">৳${data.current_balance}</strong>`;
+    el.innerHTML = `<strong style="color:#16a34a">TK ${data.current_balance}</strong>`;
   } catch(e) { el.innerHTML = `<span style="color:#dc2626">${e.message}</span>`; }
 }
 

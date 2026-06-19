@@ -317,6 +317,83 @@ app.get('/api/categories', (req, res) => {
   res.json(categories);
 });
 
+// ===== FRAUD PROTECTION =====
+
+function getClientIP(req) {
+  const cf = req.headers['cf-connecting-ip'];
+  if (cf) return cf;
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return xff.split(',')[0].trim();
+  return req.ip || req.connection?.remoteAddress || '';
+}
+
+function checkFraudBlocking(db, phoneClean, ip, fingerprint) {
+  const settings = getSettings();
+  if (settings.fraud_protection_enabled !== '1') return null;
+
+  const now = new Date().toISOString();
+
+  // 1. Manual block check
+  const blockChecks = [];
+  if (settings.fraud_phone_block_enabled === '1' && phoneClean) {
+    blockChecks.push({ type: 'phone', value: phoneClean });
+  }
+  if (settings.fraud_ip_block_enabled === '1' && ip) {
+    blockChecks.push({ type: 'ip', value: ip });
+  }
+  if (settings.fraud_fingerprint_block_enabled === '1' && fingerprint) {
+    blockChecks.push({ type: 'fingerprint', value: fingerprint });
+  }
+
+  for (const check of blockChecks) {
+    const blocked = db.prepare('SELECT * FROM blocked_entries WHERE type = ? AND value = ? AND (expires_at IS NULL OR expires_at > ?)').get(check.type, check.value, now);
+    if (blocked) return { blocked: true, reason: `manual_${check.type}`, message: `Blocked by ${check.type}` };
+  }
+
+  // 2. BD Phone validation
+  if (settings.fraud_phone_validation_bd === '1' && phoneClean) {
+    if (!/^01[3-9]\d{8}$/.test(phoneClean)) {
+      return { blocked: true, reason: 'invalid_phone', message: 'Invalid Bangladesh phone number' };
+    }
+  }
+
+  // 3. Incomplete order block
+  if (settings.fraud_incomplete_order_block === '1' && phoneClean) {
+    const statuses = (settings.fraud_incomplete_statuses || 'pending,flagged').split(',').map(s => s.trim());
+    const placeholders = statuses.map(() => '?').join(',');
+    const incomplete = db.prepare(`SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status IN (${placeholders})`).get(phoneClean, ...statuses);
+    if (incomplete.c > 0) return { blocked: true, reason: 'incomplete_order', message: 'You have incomplete orders' };
+  }
+
+  // 4. Processing cooldown
+  if (settings.fraud_processing_cooldown_enabled === '1' && phoneClean) {
+    const hours = Number(settings.fraud_processing_cooldown_hours) || 24;
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    const recent = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status = 'processing' AND created_at > ?").get(phoneClean, cutoff);
+    if (recent.c > 0) return { blocked: true, reason: 'processing_cooldown', message: `Please wait ${hours}h before ordering again` };
+  }
+
+  // 5. Rate limiting (max orders per day)
+  const maxPerPhone = Number(settings.fraud_max_orders_per_phone_day) || 3;
+  const maxPerIP = Number(settings.fraud_max_orders_per_ip_day) || 5;
+  const today = new Date().toISOString().split('T')[0];
+
+  if (phoneClean) {
+    const phoneOrders = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND DATE(created_at) = ?").get(phoneClean, today);
+    if (phoneOrders.c >= maxPerPhone) return { blocked: true, reason: 'rate_limit_phone', message: `Maximum ${maxPerPhone} orders per day exceeded` };
+  }
+  if (ip) {
+    const ipOrders = db.prepare("SELECT COUNT(*) as c FROM orders WHERE ip_address = ? AND DATE(created_at) = ?").get(ip, today);
+    if (ipOrders.c >= maxPerIP) return { blocked: true, reason: 'rate_limit_ip', message: `Maximum ${maxPerIP} orders per day exceeded` };
+  }
+
+  return null;
+}
+
+function logBlockAttempt(db, phone, ip, fingerprint, reason, orderData) {
+  db.prepare('INSERT INTO block_attempts (phone, ip, fingerprint, reason, order_data) VALUES (?, ?, ?, ?, ?)').run(phone || '', ip || '', fingerprint || '', reason, JSON.stringify(orderData || {}));
+}
+
 app.post('/api/orders', (req, res) => {
   const db = getDb();
   const { customer_name, phone, address, district, city, area, items, hadiya_amount, payment_method, problem_description, coupon_code } = req.body;
@@ -328,6 +405,24 @@ app.post('/api/orders', (req, res) => {
   const phoneClean = phone.replace(/[^0-9]/g, '');
   if (phoneClean.length < 11) {
     return res.status(400).json({ error: 'সঠিক ফোন নম্বর দিন' });
+  }
+
+  // Fraud check
+  const clientIP = getClientIP(req);
+  const fingerprint = req.body._fingerprint || '';
+  const fraudResult = checkFraudBlocking(db, phoneClean, clientIP, fingerprint);
+  if (fraudResult && fraudResult.blocked) {
+    const s = getSettings();
+    logBlockAttempt(db, phoneClean, clientIP, fingerprint, fraudResult.reason, { customer_name, phone: phoneClean });
+    return res.status(403).json({
+      error: 'blocked',
+      reason: fraudResult.reason,
+      title: s.block_message_title || 'Order Blocked',
+      message: s.block_message_text || fraudResult.message,
+      phone: s.block_message_phone,
+      whatsapp: s.block_message_whatsapp,
+      messenger: s.block_message_messenger
+    });
   }
 
   let subtotal = 0;
@@ -915,6 +1010,143 @@ app.get('/api/admin/reports/products', requireAdmin, (req, res) => {
 app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
   res.json({ url: '/uploads/' + req.file.filename });
+});
+
+// ===== FRAUD PROTECTION ADMIN API =====
+
+app.get('/api/admin/fraud/dashboard', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { from, to } = req.query;
+  const today = new Date().toISOString().split('T')[0];
+  const dateFrom = from || today;
+  const dateTo = to || today;
+
+  const total = db.prepare('SELECT COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ?').get(dateFrom, dateTo).c;
+  const byReason = db.prepare('SELECT reason, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? GROUP BY reason').all(dateFrom, dateTo);
+  const recent = db.prepare('SELECT * FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 20').all(dateFrom, dateTo);
+  const daily = db.prepare("SELECT DATE(created_at) as day, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) >= DATE('now', '-7 days') GROUP BY day ORDER BY day").all();
+  const topIPs = db.prepare('SELECT ip, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? AND ip != \'\' GROUP BY ip ORDER BY c DESC LIMIT 5').all(dateFrom, dateTo);
+  const topPhones = db.prepare('SELECT phone, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? AND phone != \'\' GROUP BY phone ORDER BY c DESC LIMIT 5').all(dateFrom, dateTo);
+  const totalBlocked = db.prepare('SELECT COUNT(*) as c FROM blocked_entries').get().c;
+
+  res.json({ total, byReason, recent, daily, topIPs, topPhones, totalBlocked });
+});
+
+// Blocked entries CRUD
+app.get('/api/admin/fraud/blocked', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { page = 1, type } = req.query;
+  let sql = 'SELECT * FROM blocked_entries WHERE 1=1';
+  const params = [];
+  if (type) { sql += ' AND type = ?'; params.push(type); }
+  sql += ' ORDER BY created_at DESC LIMIT 25 OFFSET ?';
+  params.push((Number(page) - 1) * 25);
+  const entries = db.prepare(sql).all(...params);
+  const total = db.prepare('SELECT COUNT(*) as c FROM blocked_entries').get().c;
+  res.json({ entries, total, page: Number(page), pages: Math.ceil(total / 25) });
+});
+
+app.post('/api/admin/fraud/blocked', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { type, value, reason, duration_hours } = req.body;
+  if (!type || !value) return res.status(400).json({ error: 'Type and value required' });
+  const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
+  const existing = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get(type, value);
+  if (existing) return res.status(400).json({ error: 'Already blocked' });
+  db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run(type, value, reason || '', duration_hours || null, expires);
+  res.json({ success: true });
+});
+
+app.delete('/api/admin/fraud/blocked/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM blocked_entries WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Block attempts log
+app.get('/api/admin/fraud/attempts', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { page = 1, reason } = req.query;
+  let sql = 'SELECT * FROM block_attempts WHERE 1=1';
+  const params = [];
+  if (reason) { sql += ' AND reason = ?'; params.push(reason); }
+  const total = db.prepare(sql.replace('SELECT *', 'SELECT COUNT(*) as c')).get(...params).c;
+  sql += ' ORDER BY created_at DESC LIMIT 25 OFFSET ?';
+  params.push((Number(page) - 1) * 25);
+  const attempts = db.prepare(sql).all(...params);
+  res.json({ attempts, total, page: Number(page), pages: Math.ceil(total / 25) });
+});
+
+app.delete('/api/admin/fraud/attempts/clear', requireAdmin, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM block_attempts').run();
+  res.json({ success: true });
+});
+
+// Quick block from order
+app.post('/api/admin/fraud/block-from-order/:orderId', requireAdmin, (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.orderId);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const { block_phone, block_ip, reason, duration_hours } = req.body;
+  const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
+  let blocked = 0;
+  if (block_phone && order.phone) {
+    const exists = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get('phone', order.phone);
+    if (!exists) { db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run('phone', order.phone, reason || 'Blocked from order', duration_hours || null, expires); blocked++; }
+  }
+  if (block_ip && order.ip_address) {
+    const exists = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get('ip', order.ip_address);
+    if (!exists) { db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run('ip', order.ip_address, reason || 'Blocked from order', duration_hours || null, expires); blocked++; }
+  }
+  res.json({ success: true, blocked });
+});
+
+// OTP endpoints (public)
+app.post('/api/otp/send', (req, res) => {
+  const db = getDb();
+  const settings = getSettings();
+  if (settings.otp_enabled !== '1') return res.status(400).json({ error: 'OTP not enabled' });
+
+  const { phone } = req.body;
+  const phoneClean = (phone || '').replace(/[^0-9]/g, '');
+  if (!phoneClean) return res.status(400).json({ error: 'Phone required' });
+
+  // Rate limit
+  const maxPerHour = Number(settings.otp_rate_limit_per_hour) || 5;
+  const hourAgo = new Date(Date.now() - 3600000).toISOString();
+  const recentOTPs = db.prepare('SELECT COUNT(*) as c FROM otp_sessions WHERE phone = ? AND created_at > ?').get(phoneClean, hourAgo).c;
+  if (recentOTPs >= maxPerHour) return res.status(429).json({ error: 'Too many OTP requests. Try later.' });
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const expiryMin = Number(settings.otp_expiry_minutes) || 5;
+  const expiresAt = new Date(Date.now() + expiryMin * 60000).toISOString();
+  const maxAttempts = Number(settings.otp_max_attempts) || 5;
+
+  db.prepare('INSERT INTO otp_sessions (phone, code, max_attempts, expires_at) VALUES (?, ?, ?, ?)').run(phoneClean, code, maxAttempts, expiresAt);
+
+  // TODO: Send SMS via provider when configured
+  console.log(`OTP for ${phoneClean}: ${code}`);
+
+  res.json({ success: true, message: 'OTP sent', expires_in: expiryMin * 60 });
+});
+
+app.post('/api/otp/verify', (req, res) => {
+  const db = getDb();
+  const { phone, code } = req.body;
+  const phoneClean = (phone || '').replace(/[^0-9]/g, '');
+
+  const session = db.prepare('SELECT * FROM otp_sessions WHERE phone = ? AND verified = 0 ORDER BY created_at DESC LIMIT 1').get(phoneClean);
+  if (!session) return res.status(400).json({ error: 'No OTP session found' });
+  if (new Date(session.expires_at) < new Date()) return res.status(400).json({ error: 'OTP expired' });
+  if (session.attempts >= session.max_attempts) return res.status(400).json({ error: 'Max attempts exceeded' });
+
+  db.prepare('UPDATE otp_sessions SET attempts = attempts + 1 WHERE id = ?').run(session.id);
+
+  if (session.code !== code) return res.status(400).json({ error: 'Invalid OTP' });
+
+  db.prepare('UPDATE otp_sessions SET verified = 1 WHERE id = ?').run(session.id);
+  res.json({ success: true });
 });
 
 // ===== ADMIN PASSWORD =====

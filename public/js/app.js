@@ -589,6 +589,50 @@ async function submitDirectOrder(e) {
   }
 }
 
+// ===== BD PHONE FORMATTER =====
+function formatBDPhone(input) {
+  const banglaToEng = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
+  let val = input.value;
+
+  // Convert Bangla digits to English
+  val = val.replace(/[০-৯]/g, d => banglaToEng[d]);
+
+  // Remove non-digits
+  val = val.replace(/[^0-9]/g, '');
+
+  // Strip country code prefixes
+  if (val.startsWith('880')) val = '0' + val.slice(3);
+  else if (val.startsWith('0880')) val = '0' + val.slice(4);
+  else if (val.startsWith('+880')) val = '0' + val.slice(4);
+  else if (val.startsWith('88')) val = '0' + val.slice(2);
+
+  // Ensure starts with 0
+  if (val.length > 0 && val[0] !== '0') val = '0' + val;
+
+  // Max 11 digits
+  if (val.length > 11) val = val.slice(0, 11);
+
+  input.value = val;
+
+  // Validation message
+  const msg = document.getElementById('dPhoneMsg');
+  if (!msg) return;
+
+  if (val.length === 0) {
+    msg.textContent = '';
+    msg.style.color = '';
+  } else if (val.length < 11) {
+    msg.textContent = `${11 - val.length} digit remaining`;
+    msg.style.color = '#f59e0b';
+  } else if (/^01[3-9]\d{8}$/.test(val)) {
+    msg.textContent = '✅ Valid number';
+    msg.style.color = '#16a34a';
+  } else {
+    msg.textContent = '❌ Invalid BD number (01X-XXXXXXXX)';
+    msg.style.color = '#dc2626';
+  }
+}
+
 // ===== SCROLL ANIMATIONS =====
 const observer = new IntersectionObserver(entries => {
   entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });

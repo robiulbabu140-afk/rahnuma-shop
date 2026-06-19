@@ -171,6 +171,42 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS blocked_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      value TEXT NOT NULL,
+      reason TEXT,
+      duration_hours INTEGER,
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS block_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT,
+      ip TEXT,
+      fingerprint TEXT,
+      reason TEXT NOT NULL,
+      order_data TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS otp_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT NOT NULL,
+      code TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      max_attempts INTEGER DEFAULT 5,
+      verified INTEGER DEFAULT 0,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blocked_type_value ON blocked_entries(type, value);
+    CREATE INDEX IF NOT EXISTS idx_blocked_expires ON blocked_entries(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_block_attempts_phone ON block_attempts(phone);
+    CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_sessions(phone);
+
     CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
     CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active);
     CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
@@ -214,6 +250,34 @@ function initDatabase() {
     'bkash_number': '',
     'nagad_enabled': '0',
     'nagad_number': '',
+    'fraud_protection_enabled': '1',
+    'fraud_phone_block_enabled': '1',
+    'fraud_ip_block_enabled': '1',
+    'fraud_fingerprint_block_enabled': '1',
+    'fraud_incomplete_order_block': '1',
+    'fraud_incomplete_statuses': 'pending,flagged,returned,cancelled',
+    'fraud_processing_cooldown_enabled': '1',
+    'fraud_processing_cooldown_hours': '24',
+    'fraud_courier_success_block': '0',
+    'fraud_courier_min_success_rate': '50',
+    'fraud_no_history_block': '0',
+    'fraud_phone_validation_bd': '1',
+    'fraud_max_orders_per_phone_day': '3',
+    'fraud_max_orders_per_ip_day': '5',
+    'otp_enabled': '0',
+    'otp_expiry_minutes': '5',
+    'otp_max_attempts': '5',
+    'otp_session_hours': '24',
+    'otp_rate_limit_per_hour': '5',
+    'otp_sms_provider': '',
+    'otp_sms_api_key': '',
+    'otp_sms_sender_id': '',
+    'otp_sms_template': 'Your OTP is {CODE}. Valid for {MINUTES} minutes. - {SHOP_NAME}',
+    'block_message_title': 'Order Blocked',
+    'block_message_text': 'Your order could not be placed. Please contact us for assistance.',
+    'block_message_phone': '01303073353',
+    'block_message_whatsapp': 'https://wa.me/8801303073353',
+    'block_message_messenger': '',
     'steadfast_api_key': '',
     'steadfast_secret_key': '',
     'steadfast_base_url': 'https://portal.packzy.com/api/v1',
