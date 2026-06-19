@@ -1,14 +1,15 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://rahnuma_db_user:H0MNH5LK009fuMm7B4SCmSsJc9yWFxdW@dpg-d8qn9uflk1mc73at0ptg-a.oregon-postgres.render.com:5432/rahnuma_db';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://rahnuma_db_user:H0MNH5LK009fuMm7B4SCmSsJc9yWFxdW@dpg-d8qn9uflk1mc73at0ptg-a/rahnuma_db';
 
+const isInternal = DATABASE_URL.includes('dpg-') && !DATABASE_URL.includes('.render.com');
 const isLocal = DATABASE_URL.includes('localhost') || DATABASE_URL.includes('127.0.0.1');
 const poolConfig = {
   connectionString: DATABASE_URL,
   connectionTimeoutMillis: 15000,
 };
-if (!isLocal) {
+if (!isLocal && !isInternal) {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
 
