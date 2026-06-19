@@ -722,7 +722,7 @@ app.get('/api/admin/products', requireAdmin, (req, res) => {
 app.post('/api/admin/products', requireAdmin, (req, res) => {
   const db = getDb();
   const { name, name_bn, description, description_bn, price, sale_price, cost_price, sku, category_id, stock, low_stock_alert, image, tags, is_active, is_featured } = req.body;
-  if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
+  if (!name) return res.status(400).json({ error: 'Name required' });
 
   const slug = (name_bn || name).toLowerCase().replace(/[^a-z0-9ঀ-৿]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
 

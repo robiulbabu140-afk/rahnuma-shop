@@ -557,7 +557,7 @@ async function submitDirectOrder(e) {
     address: document.getElementById('dAddress').value.trim(),
     district: document.getElementById('dDistrict').value,
     items,
-    hadiya_amount: directHadiya,
+    hadiya_amount: 0,
     payment_method: 'cod',
     problem_description: document.getElementById('dProblem') ? document.getElementById('dProblem').value.trim() : '',
     _fbc: getCookie('_fbc') || null,
