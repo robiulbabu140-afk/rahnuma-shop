@@ -443,6 +443,7 @@ async function deleteVariant(variantId, productId) {
     toast('Variant deleted');
     loadVariants(productId);
   } catch(e) { toast(e.message, 'error'); }
+}
 
 async function uploadImage(input) {
   if (!input.files[0]) return;
