@@ -21,9 +21,9 @@
     <h2 class="section-title" style="text-align:center">অর্ডার সফলভাবে সম্পন্ন!</h2>
     <p style="font-size:15px;color:#555;margin-bottom:8px">আলহামদুলিল্লাহ! আপনার অর্ডারটি গ্রহণ করা হয়েছে।</p>
     <div class="order-card" style="margin-top:24px">
-      <p><strong>অর্ডার নম্বর:</strong> <span id="successOrderNum" style="color:var(--green-mid);font-size:18px;font-weight:700"></span></p>
-      <p><strong>মোট:</strong> <span id="successTotal"></span></p>
-      <p style="margin-top:12px;font-size:13px;color:#666">শীঘ্রই আমরা আপনার সাথে যোগাযোগ করব।</p>
+      <p><strong>অর্ডার নম্বর:</strong> <span id="successOrderNum" style="color:var(--green-mid);font-size:20px;font-weight:700"></span></p>
+      <p style="margin-top:16px;font-size:15px;color:#1a1a1a;line-height:1.8">আপনার অর্ডার কনফার্ম করা হয়েছে। যদি কোনো প্রয়োজন হয় তাহলে আমাদেরকে কল করুন অথবা অতি শীঘ্রই আমরা আপনার সাথে যোগাযোগ করব।</p>
+      <a href="tel:01303073353" style="display:inline-block;margin-top:16px;font-size:28px;font-weight:700;color:var(--green-mid);text-decoration:none">📞 01303073353</a>
     </div>
     <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
       <a href="/" class="btn-primary">🏠 হোমে ফিরুন</a>
@@ -35,7 +35,6 @@
 <script>
 const params = new URLSearchParams(window.location.search);
 document.getElementById('successOrderNum').textContent = params.get('order') || '';
-document.getElementById('successTotal').textContent = '৳' + (params.get('total') || '0');
 </script>
 </body>
 </html>
