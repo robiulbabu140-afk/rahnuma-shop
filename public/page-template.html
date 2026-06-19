@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="pageTitle">Loading...</title>
+<meta name="description" id="pageDesc" content="">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
+.page-wrapper{min-height:100vh}
+
+/* Hero */
+.block-hero{padding:60px 20px;text-align:center}
+.block-hero h1{font-size:clamp(28px,5vw,48px);font-weight:800;margin-bottom:12px}
+.block-hero p{font-size:clamp(16px,2.5vw,22px);margin-bottom:24px;opacity:0.9}
+.block-hero .hero-cta{display:inline-block;padding:14px 36px;border-radius:50px;font-size:18px;font-weight:600;text-decoration:none;color:#fff;background:rgba(255,255,255,0.2);border:2px solid rgba(255,255,255,0.5);transition:all 0.3s}
+.block-hero .hero-cta:hover{background:rgba(255,255,255,0.35);transform:translateY(-2px)}
+
+/* Text */
+.block-text{max-width:800px;margin:0 auto;padding:40px 20px;font-size:17px}
+.block-text h2{font-size:28px;font-weight:700;margin-bottom:12px;color:#111827}
+.block-text h3{font-size:22px;font-weight:600;margin-bottom:10px;color:#1f2937}
+.block-text p{margin-bottom:16px}
+.block-text ul,.block-text ol{margin:0 0 16px 24px}
+.block-text img{max-width:100%;border-radius:10px;margin:16px 0}
+.block-text a{color:#2563eb;text-decoration:underline}
+
+/* Image */
+.block-image{text-align:center;padding:30px 20px}
+.block-image img{max-width:100%;max-height:600px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
+.block-image .caption{margin-top:12px;font-size:14px;color:#6b7280}
+
+/* Product */
+.block-product{max-width:700px;margin:0 auto;padding:40px 20px}
+.product-card{background:#fff;border:1.5px solid #e5e7eb;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06)}
+.product-card .product-image{width:100%;max-height:400px;object-fit:cover}
+.product-card .product-info{padding:24px}
+.product-card .product-name{font-size:24px;font-weight:700;margin-bottom:8px}
+.product-card .product-desc{color:#4b5563;margin-bottom:16px;font-size:15px}
+.product-card .product-price{font-size:28px;font-weight:800;color:#059669;margin-bottom:4px}
+.product-card .product-original-price{font-size:16px;color:#9ca3af;text-decoration:line-through;margin-left:8px}
+.product-card .product-stock{font-size:14px;color:#6b7280;margin-bottom:20px}
+
+/* Order Form */
+.order-form{background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:12px;padding:24px;margin-top:20px}
+.order-form h3{font-size:20px;font-weight:700;margin-bottom:16px;text-align:center}
+.order-form .form-group{margin-bottom:14px}
+.order-form label{display:block;font-size:14px;font-weight:600;margin-bottom:4px;color:#374151}
+.order-form input,.order-form select,.order-form textarea{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:15px;font-family:inherit}
+.order-form input:focus,.order-form select:focus,.order-form textarea:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,0.1)}
+.order-form .submit-btn{width:100%;padding:14px;background:#059669;color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;transition:all 0.3s}
+.order-form .submit-btn:hover{background:#047857;transform:translateY(-1px)}
+.order-form .submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.order-form .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.order-form .order-summary{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;margin-bottom:16px}
+.order-form .order-summary .row{display:flex;justify-content:space-between;padding:4px 0;font-size:14px}
+.order-form .order-summary .row.total{font-weight:700;font-size:16px;border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px}
+.order-msg{text-align:center;padding:20px;border-radius:8px;margin-top:16px;font-size:15px}
+.order-msg.success{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.order-msg.error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+
+/* CTA */
+.block-cta{text-align:center;padding:30px 20px}
+.block-cta .cta-btn{display:inline-block;padding:16px 48px;border-radius:50px;font-size:20px;font-weight:700;text-decoration:none;transition:all 0.3s;box-shadow:0 4px 15px rgba(0,0,0,0.2)}
+.block-cta .cta-btn:hover{transform:translateY(-3px);box-shadow:0 6px 25px rgba(0,0,0,0.3)}
+
+/* FAQ */
+.block-faq{max-width:750px;margin:0 auto;padding:40px 20px}
+.block-faq h2{text-align:center;font-size:28px;font-weight:700;margin-bottom:24px}
+.faq-item{border:1.5px solid #e5e7eb;border-radius:10px;margin-bottom:10px;overflow:hidden}
+.faq-question{padding:16px 20px;font-weight:600;font-size:16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:#fafafa;transition:background 0.2s}
+.faq-question:hover{background:#f3f4f6}
+.faq-question .arrow{transition:transform 0.3s;font-size:12px}
+.faq-question.open .arrow{transform:rotate(180deg)}
+.faq-answer{padding:0 20px;max-height:0;overflow:hidden;transition:max-height 0.3s ease,padding 0.3s ease;font-size:15px;color:#4b5563;line-height:1.7}
+.faq-answer.open{max-height:500px;padding:16px 20px}
+
+/* Testimonial */
+.block-testimonial{max-width:600px;margin:0 auto;padding:30px 20px;text-align:center}
+.testimonial-card{background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:16px;padding:30px}
+.testimonial-text{font-size:18px;font-style:italic;color:#374151;margin-bottom:16px;line-height:1.7}
+.testimonial-stars{color:#f59e0b;font-size:20px;margin-bottom:12px}
+.testimonial-name{font-size:16px;font-weight:600;color:#1f2937}
+
+/* Contact */
+.block-contact{max-width:500px;margin:0 auto;padding:40px 20px;text-align:center}
+.block-contact h2{font-size:24px;font-weight:700;margin-bottom:20px}
+.contact-links{display:flex;flex-direction:column;gap:12px}
+.contact-link{display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 20px;border:1.5px solid #e5e7eb;border-radius:12px;text-decoration:none;color:#1f2937;font-size:16px;font-weight:500;transition:all 0.2s}
+.contact-link:hover{background:#f3f4f6;border-color:#d1d5db;transform:translateY(-1px)}
+.contact-link .icon{font-size:22px}
+
+/* Footer */
+.page-footer{text-align:center;padding:30px 20px;color:#9ca3af;font-size:13px;border-top:1px solid #f3f4f6;margin-top:40px}
+
+@media (max-width:640px){
+  .order-form .form-grid{grid-template-columns:1fr}
+  .block-hero{padding:40px 16px}
+  .block-text,.block-faq,.block-product,.block-testimonial,.block-contact{padding:30px 16px}
+}
+</style>
+</head>
+<body>
+<div class="page-wrapper" id="pageWrapper"></div>
+
+<script>
+const PAGE_DATA = {{PAGE_DATA}};
+const SETTINGS = {{SETTINGS_DATA}};
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Set page title
+  document.getElementById('pageTitle').textContent = PAGE_DATA.seo_title || PAGE_DATA.title || 'Page';
+  const descMeta = document.getElementById('pageDesc');
+  if (PAGE_DATA.seo_description) descMeta.setAttribute('content', PAGE_DATA.seo_description);
+
+  // Inject custom CSS
+  if (PAGE_DATA.custom_css) {
+    const style = document.createElement('style');
+    style.textContent = PAGE_DATA.custom_css;
+    document.head.appendChild(style);
+  }
+
+  // Facebook Pixel
+  if (SETTINGS.facebook_pixel_id) {
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', SETTINGS.facebook_pixel_id);
+    fbq('track', 'PageView');
+    fbq('track', 'ViewContent', { content_name: PAGE_DATA.title });
+  }
+
+  // Render blocks
+  renderPage();
+});
+
+function renderPage() {
+  const wrapper = document.getElementById('pageWrapper');
+  let content = typeof PAGE_DATA.content === 'string' ? JSON.parse(PAGE_DATA.content) : PAGE_DATA.content;
+  if (!content || !content.blocks) { wrapper.innerHTML = '<p style="text-align:center;padding:60px;color:#999">This page has no content.</p>'; return; }
+
+  let html = '';
+  content.blocks.forEach(function(block, i) {
+    html += renderBlock(block, i);
+  });
+
+  html += '<div class="page-footer">Powered by ' + esc(SETTINGS.shop_name || 'Rahnuma Shop') + '</div>';
+  wrapper.innerHTML = html;
+}
+
+function esc(str) {
+  if (!str) return '';
+  var d = document.createElement('div'); d.textContent = str; return d.innerHTML;
+}
+
+function renderBlock(block, index) {
+  switch(block.type) {
+    case 'hero':
+      return '<div class="block-hero" style="background-color:' + esc(block.data.bg_color || '#1e3a5f') + ';color:' + esc(block.data.text_color || '#fff') + '">' +
+        '<h1>' + esc(block.data.title) + '</h1>' +
+        '<p>' + esc(block.data.subtitle) + '</p>' +
+        (block.data.cta_text ? '<a href="' + esc(block.data.cta_link || '#') + '" class="hero-cta">' + esc(block.data.cta_text) + '</a>' : '') +
+        '</div>';
+
+    case 'text':
+      return '<div class="block-text">' + (block.data.content || '') + '</div>';
+
+    case 'image':
+      if (!block.data.url) return '';
+      return '<div class="block-image">' +
+        '<img src="' + esc(block.data.url) + '" alt="' + esc(block.data.alt || '') + '">' +
+        (block.data.caption ? '<div class="caption">' + esc(block.data.caption) + '</div>' : '') +
+        '</div>';
+
+    case 'product':
+      return '<div class="block-product" id="product-block-' + index + '"><div style="text-align:center;padding:40px;color:#999">Loading product...</div></div>' +
+        '<script>loadProductBlock(' + index + ', ' + JSON.stringify(block.data) + ')<\/script>';
+
+    case 'cta':
+      return '<div class="block-cta">' +
+        '<a href="' + esc(block.data.link || '#') + '" class="cta-btn" style="background:' + esc(block.data.color || '#2563eb') + ';color:' + esc(block.data.text_color || '#fff') + '">' + esc(block.data.text) + '</a>' +
+        '</div>';
+
+    case 'faq':
+      var items = block.data.items || [];
+      return '<div class="block-faq"><h2>Frequently Asked Questions</h2>' +
+        items.map(function(item, fi) {
+          return '<div class="faq-item"><div class="faq-question" onclick="toggleFaq(this)">' +
+            '<span>' + esc(item.question) + '</span><span class="arrow">▼</span></div>' +
+            '<div class="faq-answer">' + esc(item.answer) + '</div></div>';
+        }).join('') + '</div>';
+
+    case 'testimonial':
+      var stars = '';
+      for (var s = 0; s < (block.data.rating || 5); s++) stars += '★';
+      return '<div class="block-testimonial"><div class="testimonial-card">' +
+        '<div class="testimonial-stars">' + stars + '</div>' +
+        '<div class="testimonial-text">"' + esc(block.data.text) + '"</div>' +
+        '<div class="testimonial-name">— ' + esc(block.data.name) + '</div>' +
+        '</div></div>';
+
+    case 'contact':
+      var links = '';
+      if (block.data.phone) links += '<a href="tel:' + esc(block.data.phone) + '" class="contact-link"><span class="icon">📞</span> Call: ' + esc(block.data.phone) + '</a>';
+      if (block.data.whatsapp) links += '<a href="' + esc(block.data.whatsapp) + '" target="_blank" class="contact-link"><span class="icon">💬</span> WhatsApp</a>';
+      if (block.data.messenger) links += '<a href="' + esc(block.data.messenger) + '" target="_blank" class="contact-link"><span class="icon">💙</span> Messenger</a>';
+      return '<div class="block-contact"><h2>Contact Us</h2><div class="contact-links">' + links + '</div></div>';
+
+    default:
+      return '';
+  }
+}
+
+function toggleFaq(el) {
+  var answer = el.nextElementSibling;
+  var isOpen = el.classList.contains('open');
+  el.classList.toggle('open');
+  answer.classList.toggle('open');
+}
+
+function loadProductBlock(index, data) {
+  if (!data.product_id) {
+    document.getElementById('product-block-' + index).innerHTML = '<p style="text-align:center;padding:20px;color:#999">No product selected</p>';
+    return;
+  }
+
+  fetch('/api/products?search=')
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      var product = null;
+      if (result.products) {
+        product = result.products.find(function(p) { return String(p.id) === String(data.product_id); });
+      }
+      if (!product) {
+        // Try direct fetch by getting all
+        fetch('/api/products/' + data.product_id)
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(p) { if (p) renderProductCard(index, p, data); });
+        return;
+      }
+      renderProductCard(index, product, data);
+    })
+    .catch(function() {
+      document.getElementById('product-block-' + index).innerHTML = '<p style="text-align:center;padding:20px;color:#dc2626">Failed to load product</p>';
+    });
+}
+
+function renderProductCard(index, product, data) {
+  var container = document.getElementById('product-block-' + index);
+  if (!container) return;
+
+  var price = product.sale_price || product.price;
+  var html = '<div class="product-card">';
+  if (product.image) html += '<img src="' + esc(product.image) + '" alt="' + esc(product.name) + '" class="product-image">';
+  html += '<div class="product-info">';
+  html += '<div class="product-name">' + esc(product.name_bn || product.name) + '</div>';
+  if (product.description) html += '<div class="product-desc">' + esc(product.description_bn || product.description) + '</div>';
+  html += '<div class="product-price">' + esc(SETTINGS.currency || 'TK') + ' ' + price;
+  if (product.sale_price && product.price > product.sale_price) html += '<span class="product-original-price">' + esc(SETTINGS.currency || 'TK') + ' ' + product.price + '</span>';
+  html += '</div>';
+  if (product.stock > 0) html += '<div class="product-stock">In Stock: ' + product.stock + ' available</div>';
+  else html += '<div class="product-stock" style="color:#dc2626">Out of Stock</div>';
+  html += '</div></div>';
+
+  if (data.show_order_form && product.stock > 0) {
+    html += '<div class="order-form" id="orderForm' + index + '">';
+    html += '<h3>Order Now (Cash on Delivery)</h3>';
+    html += '<div class="order-summary">';
+    html += '<div class="row"><span>Product:</span><span>' + esc(product.name_bn || product.name) + '</span></div>';
+    html += '<div class="row"><span>Price:</span><span>' + esc(SETTINGS.currency || 'TK') + ' ' + price + '</span></div>';
+    html += '<div class="row"><span>Quantity:</span><span><select id="lpQty' + index + '" onchange="updateLpOrderSummary(' + index + ', ' + price + ')" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:4px">';
+    for (var q = 1; q <= Math.min(product.stock, 10); q++) html += '<option value="' + q + '">' + q + '</option>';
+    html += '</select></span></div>';
+    html += '<div class="row"><span>Shipping:</span><span id="lpShipping' + index + '">' + esc(SETTINGS.currency || 'TK') + ' ' + (SETTINGS.shipping_outside_dhaka || 120) + '</span></div>';
+    html += '<div class="row total"><span>Total:</span><span id="lpTotal' + index + '">' + esc(SETTINGS.currency || 'TK') + ' ' + (price + Number(SETTINGS.shipping_outside_dhaka || 120)) + '</span></div>';
+    html += '</div>';
+    html += '<div class="form-group"><label>Your Name *</label><input id="lpName' + index + '" required placeholder="Enter your full name"></div>';
+    html += '<div class="form-group"><label>Phone Number *</label><input id="lpPhone' + index + '" required placeholder="01XXXXXXXXX"></div>';
+    html += '<div class="form-group"><label>Full Address *</label><textarea id="lpAddr' + index + '" rows="2" required placeholder="House, Road, Area, City" style="width:100%;padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit"></textarea></div>';
+    html += '<div class="form-grid">';
+    html += '<div class="form-group"><label>District</label><select id="lpDistrict' + index + '" onchange="updateLpShipping(' + index + ', ' + price + ')"><option value="">Select District</option><option value="Dhaka">Dhaka</option><option value="Chittagong">Chittagong</option><option value="Rajshahi">Rajshahi</option><option value="Khulna">Khulna</option><option value="Sylhet">Sylhet</option><option value="Barisal">Barisal</option><option value="Rangpur">Rangpur</option><option value="Mymensingh">Mymensingh</option></select></div>';
+    html += '<div class="form-group"><label>City</label><input id="lpCity' + index + '" placeholder="City name"></div>';
+    html += '</div>';
+    html += '<div id="lpOrderMsg' + index + '"></div>';
+    html += '<button type="button" class="submit-btn" id="lpSubmit' + index + '" onclick="submitLpOrder(' + index + ', ' + product.id + ', ' + price + ')">Place Order</button>';
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function updateLpShipping(index, unitPrice) {
+  var district = document.getElementById('lpDistrict' + index).value;
+  var isDhaka = district && district.toLowerCase().includes('dhaka');
+  var shipping = isDhaka ? Number(SETTINGS.shipping_inside_dhaka || 60) : Number(SETTINGS.shipping_outside_dhaka || 120);
+  document.getElementById('lpShipping' + index).textContent = (SETTINGS.currency || 'TK') + ' ' + shipping;
+  updateLpOrderSummary(index, unitPrice);
+}
+
+function updateLpOrderSummary(index, unitPrice) {
+  var qty = Number(document.getElementById('lpQty' + index).value) || 1;
+  var district = document.getElementById('lpDistrict' + index).value;
+  var isDhaka = district && district.toLowerCase().includes('dhaka');
+  var shipping = isDhaka ? Number(SETTINGS.shipping_inside_dhaka || 60) : Number(SETTINGS.shipping_outside_dhaka || 120);
+  var total = (unitPrice * qty) + shipping;
+  document.getElementById('lpShipping' + index).textContent = (SETTINGS.currency || 'TK') + ' ' + shipping;
+  document.getElementById('lpTotal' + index).textContent = (SETTINGS.currency || 'TK') + ' ' + total;
+}
+
+function submitLpOrder(index, productId, unitPrice) {
+  var name = document.getElementById('lpName' + index).value.trim();
+  var phone = document.getElementById('lpPhone' + index).value.trim();
+  var address = document.getElementById('lpAddr' + index).value.trim();
+  var district = document.getElementById('lpDistrict' + index).value;
+  var city = document.getElementById('lpCity' + index).value.trim();
+  var qty = Number(document.getElementById('lpQty' + index).value) || 1;
+  var msgEl = document.getElementById('lpOrderMsg' + index);
+  var btn = document.getElementById('lpSubmit' + index);
+
+  if (!name || !phone || !address) {
+    msgEl.innerHTML = '<div class="order-msg error">Please fill in all required fields (name, phone, address).</div>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Placing Order...';
+  msgEl.innerHTML = '';
+
+  fetch('/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_name: name,
+      phone: phone,
+      address: address,
+      district: district,
+      city: city,
+      area: '',
+      items: [{ product_id: productId, quantity: qty }],
+      payment_method: 'cod',
+      _source_url: window.location.href
+    })
+  })
+  .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+  .then(function(result) {
+    if (result.ok && result.data.success) {
+      msgEl.innerHTML = '<div class="order-msg success">Order placed successfully! Your order number is <strong>' + esc(result.data.order_number) + '</strong>. We will contact you shortly.</div>';
+      btn.textContent = 'Order Placed!';
+      // FB Pixel Purchase event
+      if (typeof fbq !== 'undefined') {
+        fbq('track', 'Purchase', {
+          value: result.data.total,
+          currency: 'BDT',
+          content_ids: [String(productId)],
+          content_type: 'product',
+          num_items: qty
+        }, { eventID: result.data.event_id });
+      }
+    } else {
+      var errMsg = result.data.message || result.data.error || 'Failed to place order. Please try again.';
+      msgEl.innerHTML = '<div class="order-msg error">' + esc(errMsg) + '</div>';
+      btn.disabled = false;
+      btn.textContent = 'Place Order';
+    }
+  })
+  .catch(function() {
+    msgEl.innerHTML = '<div class="order-msg error">Network error. Please check your connection and try again.</div>';
+    btn.disabled = false;
+    btn.textContent = 'Place Order';
+  });
+}
+</script>
+</body>
+</html>

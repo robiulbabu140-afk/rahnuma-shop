@@ -20,10 +20,10 @@ function loadPage(page) {
   const el = document.querySelector(`.nav-item[data-page="${page}"]`);
   if (el) el.classList.add('active');
 
-  const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', fraud:'Fraud Protection', settings:'Settings' };
+  const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', pages:'Landing Pages', fraud:'Fraud Protection', settings:'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
-  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, fraud: loadFraudPage, settings: loadSettings };
+  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, pages: loadPages, fraud: loadFraudPage, settings: loadSettings };
   if (loaders[page]) loaders[page]();
 
   document.getElementById('sidebar').classList.remove('open');
@@ -1231,6 +1231,438 @@ async function saveBlockMessageSettings(e) {
       block_message_generic: document.getElementById('blockMsgGeneric').value,
     })});
     toast('Block messages saved');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ===== LANDING PAGES =====
+let pagesPage = 1;
+let pagesStatus = 'all';
+let pagesSearch = '';
+
+async function loadPages() {
+  const c = document.getElementById('pageContent');
+  c.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="search-bar">
+          <input type="text" placeholder="Search pages..." id="pageSearchInput" onkeyup="if(event.key==='Enter'){pagesSearch=this.value;pagesPage=1;fetchPages()}">
+          <select id="pageStatusFilter" onchange="pagesStatus=this.value;pagesPage=1;fetchPages()">
+            <option value="all">All Pages</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="trash">Trash</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="showPageEditor()">+ New Page</button>
+      </div>
+      <div id="pagesTable"></div>
+      <div class="pagination" id="pagesPagination"></div>
+    </div>`;
+  fetchPages();
+}
+
+async function fetchPages() {
+  try {
+    const params = new URLSearchParams({ page: pagesPage, limit: 20, status: pagesStatus, search: pagesSearch });
+    const data = await api('/api/admin/pages?' + params);
+    const pages = data.pages || [];
+
+    document.getElementById('pagesTable').innerHTML = `<table><thead><tr><th>Title</th><th>URL Slug</th><th>Status</th><th>Views</th><th>Updated</th><th>Actions</th></tr></thead><tbody>
+    ${pages.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">No pages found</td></tr>' :
+      pages.map(p => `<tr>
+        <td><strong>${escapeHtml(p.title)}</strong></td>
+        <td><code>/p/${escapeHtml(p.slug)}</code></td>
+        <td><span class="badge badge-${p.status === 'published' ? 'delivered' : p.status === 'draft' ? 'pending' : 'cancelled'}">${p.status}</span></td>
+        <td>${p.views || 0}</td>
+        <td>${p.updated_at ? new Date(p.updated_at).toLocaleDateString('en-US') : '-'}</td>
+        <td class="table-actions">
+          <button class="btn btn-sm btn-ghost" onclick="showPageEditor(${p.id})">Edit</button>
+          ${p.status === 'published' ? `<a href="/p/${p.slug}" target="_blank" class="btn btn-sm btn-ghost">View</a>` : ''}
+          <button class="btn btn-sm btn-ghost" onclick="duplicatePage(${p.id})">Copy</button>
+          ${p.deleted_at ? `<button class="btn btn-sm btn-danger" onclick="if(confirm('Permanently delete this page?'))permanentDeletePage(${p.id})">Delete</button>` :
+            `<button class="btn btn-sm btn-danger" onclick="trashPage(${p.id})">Trash</button>`}
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+
+    const totalPages = data.pages ? Math.ceil((data.total || 0) / 20) : 1;
+    let pagHtml = `<button ${pagesPage<=1?'disabled':''} onclick="pagesPage--;fetchPages()">← Prev</button>`;
+    pagHtml += `<span>Page ${pagesPage} / ${totalPages || 1}</span>`;
+    pagHtml += `<button ${pagesPage>=totalPages?'disabled':''} onclick="pagesPage++;fetchPages()">Next →</button>`;
+    document.getElementById('pagesPagination').innerHTML = pagHtml;
+  } catch(e) { document.getElementById('pagesTable').innerHTML = '<p style="padding:20px;color:red">Failed to load pages</p>'; }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function generateSlug(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+const blockTypes = [
+  { type: 'hero', label: 'Hero Section', icon: '🎯' },
+  { type: 'text', label: 'Text Content', icon: '📝' },
+  { type: 'image', label: 'Image', icon: '🖼' },
+  { type: 'product', label: 'Product', icon: '🛍' },
+  { type: 'cta', label: 'CTA Button', icon: '👆' },
+  { type: 'faq', label: 'FAQ', icon: '❓' },
+  { type: 'testimonial', label: 'Testimonial', icon: '💬' },
+  { type: 'contact', label: 'Contact Info', icon: '📞' },
+];
+
+function getDefaultBlockData(type) {
+  switch(type) {
+    case 'hero': return { title: 'Welcome', subtitle: 'Your subtitle here', bg_color: '#1e3a5f', text_color: '#ffffff', cta_text: 'Order Now', cta_link: '#order' };
+    case 'text': return { content: '<p>Enter your text content here.</p>' };
+    case 'image': return { url: '', alt: '', caption: '' };
+    case 'product': return { product_id: '', show_order_form: false };
+    case 'cta': return { text: 'Click Here', link: '#', color: '#2563eb', text_color: '#ffffff' };
+    case 'faq': return { items: [{ question: 'Sample question?', answer: 'Sample answer.' }] };
+    case 'testimonial': return { name: 'Customer Name', text: 'Great product!', rating: 5 };
+    case 'contact': return { phone: '', whatsapp: '', messenger: '' };
+    default: return {};
+  }
+}
+
+function renderBlockEditor(block, index, totalBlocks) {
+  const bt = blockTypes.find(b => b.type === block.type);
+  const label = bt ? `${bt.icon} ${bt.label}` : block.type;
+
+  let fieldsHtml = '';
+  switch(block.type) {
+    case 'hero':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Title</label><input value="${escapeHtml(block.data.title || '')}" onchange="updateBlockData(${index}, 'title', this.value)"></div>
+          <div class="form-group"><label>Subtitle</label><input value="${escapeHtml(block.data.subtitle || '')}" onchange="updateBlockData(${index}, 'subtitle', this.value)"></div>
+          <div class="form-group"><label>Background Color</label><input type="color" value="${block.data.bg_color || '#1e3a5f'}" onchange="updateBlockData(${index}, 'bg_color', this.value)"></div>
+          <div class="form-group"><label>Text Color</label><input type="color" value="${block.data.text_color || '#ffffff'}" onchange="updateBlockData(${index}, 'text_color', this.value)"></div>
+          <div class="form-group"><label>CTA Button Text</label><input value="${escapeHtml(block.data.cta_text || '')}" onchange="updateBlockData(${index}, 'cta_text', this.value)"></div>
+          <div class="form-group"><label>CTA Button Link</label><input value="${escapeHtml(block.data.cta_link || '')}" onchange="updateBlockData(${index}, 'cta_link', this.value)"></div>
+        </div>`;
+      break;
+    case 'text':
+      fieldsHtml = `
+        <div class="form-group"><label>Content (HTML)</label><textarea rows="5" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;font-size:13px" onchange="updateBlockData(${index}, 'content', this.value)">${escapeHtml(block.data.content || '')}</textarea></div>`;
+      break;
+    case 'image':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Image URL</label><input value="${escapeHtml(block.data.url || '')}" onchange="updateBlockData(${index}, 'url', this.value)"></div>
+          <div class="form-group"><label>Alt Text</label><input value="${escapeHtml(block.data.alt || '')}" onchange="updateBlockData(${index}, 'alt', this.value)"></div>
+        </div>
+        <div class="form-group"><label>Caption</label><input value="${escapeHtml(block.data.caption || '')}" onchange="updateBlockData(${index}, 'caption', this.value)"></div>
+        <div class="form-group"><label>Or Upload Image</label><input type="file" accept="image/*" onchange="uploadBlockImage(this, ${index})"></div>
+        ${block.data.url ? `<img src="${block.data.url}" style="max-width:200px;max-height:120px;border-radius:8px;margin-top:8px">` : ''}`;
+      break;
+    case 'product':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Product</label><select id="blockProduct${index}" onchange="updateBlockData(${index}, 'product_id', this.value)"><option value="">Select Product</option></select></div>
+          <div class="form-group"><label><input type="checkbox" ${block.data.show_order_form ? 'checked' : ''} onchange="updateBlockData(${index}, 'show_order_form', this.checked)"> Show COD Order Form</label></div>
+        </div>
+        <script>loadBlockProductOptions(${index}, '${block.data.product_id || ''}')<\/script>`;
+      break;
+    case 'cta':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Button Text</label><input value="${escapeHtml(block.data.text || '')}" onchange="updateBlockData(${index}, 'text', this.value)"></div>
+          <div class="form-group"><label>Link URL</label><input value="${escapeHtml(block.data.link || '')}" onchange="updateBlockData(${index}, 'link', this.value)"></div>
+          <div class="form-group"><label>Button Color</label><input type="color" value="${block.data.color || '#2563eb'}" onchange="updateBlockData(${index}, 'color', this.value)"></div>
+          <div class="form-group"><label>Text Color</label><input type="color" value="${block.data.text_color || '#ffffff'}" onchange="updateBlockData(${index}, 'text_color', this.value)"></div>
+        </div>`;
+      break;
+    case 'faq':
+      const faqItems = block.data.items || [];
+      fieldsHtml = `<div id="faqItems${index}">
+        ${faqItems.map((item, fi) => `
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px">
+            <div class="form-group"><label>Question</label><input value="${escapeHtml(item.question || '')}" onchange="updateFaqItem(${index}, ${fi}, 'question', this.value)"></div>
+            <div class="form-group"><label>Answer</label><textarea rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:inherit" onchange="updateFaqItem(${index}, ${fi}, 'answer', this.value)">${escapeHtml(item.answer || '')}</textarea></div>
+            <button type="button" class="btn btn-sm btn-danger" onclick="removeFaqItem(${index}, ${fi})">Remove</button>
+          </div>
+        `).join('')}
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="addFaqItem(${index})">+ Add FAQ Item</button>`;
+      break;
+    case 'testimonial':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Name</label><input value="${escapeHtml(block.data.name || '')}" onchange="updateBlockData(${index}, 'name', this.value)"></div>
+          <div class="form-group"><label>Rating (1-5)</label><input type="number" min="1" max="5" value="${block.data.rating || 5}" onchange="updateBlockData(${index}, 'rating', Number(this.value))"></div>
+        </div>
+        <div class="form-group"><label>Testimonial Text</label><textarea rows="3" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:inherit" onchange="updateBlockData(${index}, 'text', this.value)">${escapeHtml(block.data.text || '')}</textarea></div>`;
+      break;
+    case 'contact':
+      fieldsHtml = `
+        <div class="form-grid">
+          <div class="form-group"><label>Phone Number</label><input value="${escapeHtml(block.data.phone || '')}" onchange="updateBlockData(${index}, 'phone', this.value)"></div>
+          <div class="form-group"><label>WhatsApp Link</label><input value="${escapeHtml(block.data.whatsapp || '')}" onchange="updateBlockData(${index}, 'whatsapp', this.value)" placeholder="https://wa.me/880..."></div>
+          <div class="form-group"><label>Messenger Link</label><input value="${escapeHtml(block.data.messenger || '')}" onchange="updateBlockData(${index}, 'messenger', this.value)"></div>
+        </div>`;
+      break;
+  }
+
+  return `<div class="page-block" id="block-${index}" style="border:1.5px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px;background:#fafafa">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="font-size:14px">${label}</strong>
+      <div style="display:flex;gap:6px">
+        ${index > 0 ? `<button type="button" class="btn btn-sm btn-ghost" onclick="moveBlock(${index}, -1)" title="Move Up">↑</button>` : ''}
+        ${index < totalBlocks - 1 ? `<button type="button" class="btn btn-sm btn-ghost" onclick="moveBlock(${index}, 1)" title="Move Down">↓</button>` : ''}
+        <button type="button" class="btn btn-sm btn-danger" onclick="removeBlock(${index})" title="Remove Block">✕</button>
+      </div>
+    </div>
+    ${fieldsHtml}
+  </div>`;
+}
+
+let currentEditorBlocks = [];
+let currentEditingPageId = null;
+
+async function showPageEditor(id) {
+  let pageData = { title: '', slug: '', status: 'draft', content: { blocks: [] }, seo_title: '', seo_description: '', custom_css: '' };
+  let revisions = [];
+
+  if (id) {
+    try {
+      const data = await api('/api/admin/pages/' + id);
+      pageData = data.page;
+      revisions = data.revisions || [];
+      if (typeof pageData.content === 'string') {
+        try { pageData.content = JSON.parse(pageData.content); } catch(e) { pageData.content = { blocks: [] }; }
+      }
+      if (!pageData.content) pageData.content = { blocks: [] };
+    } catch(e) { toast('Failed to load page', 'error'); return; }
+  }
+
+  currentEditorBlocks = (pageData.content && pageData.content.blocks) ? [...pageData.content.blocks] : [];
+  currentEditingPageId = id || null;
+
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);overflow-y:auto';
+  modal.onclick = function(e) { if(e.target===this) { if(confirm('Close editor? Unsaved changes will be lost.')) this.remove(); } };
+
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:900px;margin:20px auto;max-height:none">
+    <div class="modal-header"><h2>${id ? 'Edit Page' : 'New Landing Page'}</h2><button class="modal-close" onclick="if(confirm('Close editor?'))this.closest('.admin-modal').remove()">&times;</button></div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:20px">
+      <div>
+        <div class="form-group"><label>Page Title</label><input id="lpTitle" value="${escapeHtml(pageData.title)}" required oninput="if(!document.getElementById('lpSlugManual').checked)document.getElementById('lpSlug').value=generateSlug(this.value)"></div>
+        <div class="form-group"><label>URL Slug <small>(<input type="checkbox" id="lpSlugManual"> custom)</small></label><input id="lpSlug" value="${escapeHtml(pageData.slug)}" placeholder="page-url-slug"></div>
+
+        <h3 style="margin:20px 0 12px;font-size:16px">Page Content Blocks</h3>
+        <div id="blocksContainer"></div>
+
+        <div style="margin-top:12px;position:relative">
+          <button type="button" class="btn btn-ghost" onclick="document.getElementById('addBlockDropdown').style.display=document.getElementById('addBlockDropdown').style.display==='block'?'none':'block'">+ Add Block</button>
+          <div id="addBlockDropdown" style="display:none;position:absolute;top:100%;left:0;background:white;border:1.5px solid #e5e7eb;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:8px;z-index:100;min-width:220px">
+            ${blockTypes.map(bt => `<div style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:14px" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''" onclick="addBlock('${bt.type}');document.getElementById('addBlockDropdown').style.display='none'">${bt.icon} ${bt.label}</div>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <div style="border-left:1.5px solid #e5e7eb;padding-left:20px">
+        <div class="form-group"><label>Status</label>
+          <select id="lpStatus">
+            <option value="draft" ${pageData.status === 'draft' ? 'selected' : ''}>Draft</option>
+            <option value="published" ${pageData.status === 'published' ? 'selected' : ''}>Published</option>
+          </select>
+        </div>
+
+        <h4 style="margin:16px 0 8px">SEO Settings</h4>
+        <div class="form-group"><label>SEO Title</label><input id="lpSeoTitle" value="${escapeHtml(pageData.seo_title || '')}"></div>
+        <div class="form-group"><label>SEO Description</label><textarea id="lpSeoDesc" rows="3" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:inherit">${escapeHtml(pageData.seo_description || '')}</textarea></div>
+
+        <h4 style="margin:16px 0 8px">Custom CSS</h4>
+        <div class="form-group"><textarea id="lpCustomCss" rows="4" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px;font-family:monospace;font-size:12px">${escapeHtml(pageData.custom_css || '')}</textarea></div>
+
+        ${revisions.length > 0 ? `
+          <h4 style="margin:16px 0 8px">Revisions (${revisions.length})</h4>
+          <div style="max-height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:8px">
+            ${revisions.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:12px">
+              <span>${new Date(r.created_at).toLocaleString('en-US')}</span>
+              <button class="btn btn-sm btn-ghost" onclick="restoreRevision(${id}, ${r.id})">Restore</button>
+            </div>`).join('')}
+          </div>
+        ` : ''}
+
+        <div style="margin-top:20px;display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-primary" onclick="saveLandingPage(${id || 'null'})">Save Page</button>
+          ${id ? `<a href="/p/${pageData.slug}" target="_blank" class="btn btn-ghost" style="text-align:center">Preview Page</a>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  renderBlocks();
+
+  // Load product options for any product blocks
+  setTimeout(() => {
+    currentEditorBlocks.forEach((block, idx) => {
+      if (block.type === 'product') {
+        loadBlockProductOptions(idx, block.data.product_id || '');
+      }
+    });
+  }, 100);
+}
+
+function renderBlocks() {
+  const container = document.getElementById('blocksContainer');
+  if (!container) return;
+  if (currentEditorBlocks.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:#999;border:2px dashed #e5e7eb;border-radius:10px">No blocks yet. Click "Add Block" to start building your page.</div>';
+    return;
+  }
+  container.innerHTML = currentEditorBlocks.map((block, i) => renderBlockEditor(block, i, currentEditorBlocks.length)).join('');
+}
+
+function addBlock(type) {
+  currentEditorBlocks.push({ type, data: getDefaultBlockData(type) });
+  renderBlocks();
+  if (type === 'product') {
+    setTimeout(() => loadBlockProductOptions(currentEditorBlocks.length - 1, ''), 100);
+  }
+}
+
+function removeBlock(index) {
+  if (!confirm('Remove this block?')) return;
+  currentEditorBlocks.splice(index, 1);
+  renderBlocks();
+}
+
+function moveBlock(index, direction) {
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= currentEditorBlocks.length) return;
+  const temp = currentEditorBlocks[index];
+  currentEditorBlocks[index] = currentEditorBlocks[newIndex];
+  currentEditorBlocks[newIndex] = temp;
+  renderBlocks();
+}
+
+function updateBlockData(index, key, value) {
+  if (currentEditorBlocks[index]) {
+    currentEditorBlocks[index].data[key] = value;
+  }
+}
+
+function updateFaqItem(blockIndex, faqIndex, key, value) {
+  if (currentEditorBlocks[blockIndex] && currentEditorBlocks[blockIndex].data.items) {
+    currentEditorBlocks[blockIndex].data.items[faqIndex][key] = value;
+  }
+}
+
+function addFaqItem(blockIndex) {
+  if (!currentEditorBlocks[blockIndex].data.items) currentEditorBlocks[blockIndex].data.items = [];
+  currentEditorBlocks[blockIndex].data.items.push({ question: '', answer: '' });
+  renderBlocks();
+}
+
+function removeFaqItem(blockIndex, faqIndex) {
+  currentEditorBlocks[blockIndex].data.items.splice(faqIndex, 1);
+  renderBlocks();
+}
+
+async function uploadBlockImage(input, blockIndex) {
+  if (!input.files[0]) return;
+  const form = new FormData();
+  form.append('image', input.files[0]);
+  try {
+    const res = await fetch('/api/admin/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.url) {
+      updateBlockData(blockIndex, 'url', data.url);
+      renderBlocks();
+    }
+  } catch(e) { toast('Upload failed', 'error'); }
+}
+
+let _productListCache = null;
+async function loadBlockProductOptions(blockIndex, selectedId) {
+  const sel = document.getElementById('blockProduct' + blockIndex);
+  if (!sel) return;
+  try {
+    if (!_productListCache) {
+      _productListCache = await api('/api/admin/products/list');
+    }
+    const products = _productListCache;
+    sel.innerHTML = '<option value="">Select Product</option>' + products.map(p => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name} (TK ${p.sale_price || p.price})</option>`).join('');
+  } catch(e) {}
+}
+
+async function saveLandingPage(id) {
+  const title = document.getElementById('lpTitle').value;
+  const slug = document.getElementById('lpSlug').value;
+  const status = document.getElementById('lpStatus').value;
+  const seo_title = document.getElementById('lpSeoTitle').value;
+  const seo_description = document.getElementById('lpSeoDesc').value;
+  const custom_css = document.getElementById('lpCustomCss').value;
+
+  if (!title) { toast('Title is required', 'error'); return; }
+
+  const body = {
+    title,
+    slug: slug || generateSlug(title),
+    content: { blocks: currentEditorBlocks },
+    seo_title,
+    seo_description,
+    custom_css
+  };
+
+  try {
+    if (id) {
+      await api('/api/admin/pages/' + id, { method: 'PUT', body: JSON.stringify(body) });
+      // Update status separately if needed
+      const currentStatus = document.getElementById('lpStatus').value;
+      await api('/api/admin/pages/' + id + '/status', { method: 'PUT', body: JSON.stringify({ status: currentStatus }) });
+      toast('Page updated');
+    } else {
+      body.status = status;
+      await api('/api/admin/pages', { method: 'POST', body: JSON.stringify(body) });
+      toast('Page created');
+    }
+    document.querySelector('.admin-modal').remove();
+    _productListCache = null;
+    fetchPages();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function duplicatePage(id) {
+  try {
+    await api('/api/admin/pages/' + id + '/duplicate', { method: 'POST' });
+    toast('Page duplicated');
+    fetchPages();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function trashPage(id) {
+  if (!confirm('Move this page to trash?')) return;
+  try {
+    await api('/api/admin/pages/' + id + '/status', { method: 'PUT', body: JSON.stringify({ status: 'trash' }) });
+    toast('Page moved to trash');
+    fetchPages();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function permanentDeletePage(id) {
+  try {
+    await api('/api/admin/pages/' + id, { method: 'DELETE' });
+    toast('Page permanently deleted');
+    fetchPages();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function restoreRevision(pageId, revId) {
+  if (!confirm('Restore this revision? Current content will be saved as a new revision.')) return;
+  try {
+    const result = await api('/api/admin/pages/' + pageId + '/revisions/' + revId + '/restore', { method: 'POST' });
+    toast('Revision restored');
+    document.querySelector('.admin-modal').remove();
+    showPageEditor(pageId);
   } catch(e) { toast(e.message, 'error'); }
 }
 

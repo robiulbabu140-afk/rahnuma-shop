@@ -4,17 +4,25 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
+const fs = require('fs');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
-const { getDb, initDatabase } = require('./db');
+const { pool, initDatabase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-initDatabase();
+// Initialize database before starting
+(async () => {
+  await initDatabase();
+})();
 
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, 'public', 'uploads'),
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, 'public', 'uploads');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, Date.now() + '-' + Math.random().toString(36).slice(2, 8) + ext);
@@ -26,7 +34,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: 'rahnuma-shop-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET || 'rahnuma-shop-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
@@ -48,19 +56,18 @@ function requireAdmin(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
-function getSettings() {
-  const db = getDb();
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+async function getSettings() {
+  const result = await pool.query('SELECT key, value FROM settings');
   const settings = {};
-  rows.forEach(r => { settings[r.key] = r.value; });
+  result.rows.forEach(r => { settings[r.key] = r.value; });
   return settings;
 }
 
 // ===== STEADFAST COURIER API =====
 
 function steadfastRequest(method, endpoint, body) {
-  return new Promise((resolve, reject) => {
-    const settings = getSettings();
+  return new Promise(async (resolve, reject) => {
+    const settings = await getSettings();
     const apiKey = settings.steadfast_api_key;
     const secretKey = settings.steadfast_secret_key;
     const baseUrl = settings.steadfast_base_url || 'https://portal.packzy.com/api/v1';
@@ -94,13 +101,13 @@ function steadfastRequest(method, endpoint, body) {
 }
 
 async function sendOrderToCourier(orderId) {
-  const db = getDb();
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const orderRes = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = orderRes.rows[0];
   if (!order) throw new Error('Order not found');
   if (order.consignment_id) throw new Error('Already sent to courier');
 
-  const items = db.prepare('SELECT product_name, quantity FROM order_items WHERE order_id = ?').all(orderId);
-  const itemDesc = items.map(i => `${i.product_name} x${i.quantity}`).join(', ');
+  const itemsRes = await pool.query('SELECT product_name, quantity FROM order_items WHERE order_id = $1', [orderId]);
+  const itemDesc = itemsRes.rows.map(i => `${i.product_name} x${i.quantity}`).join(', ');
 
   const result = await steadfastRequest('POST', '/create_order', {
     invoice: order.order_number,
@@ -114,16 +121,16 @@ async function sendOrderToCourier(orderId) {
 
   if (result.status === 200 && result.consignment) {
     const c = result.consignment;
-    db.prepare(`UPDATE orders SET
+    await pool.query(`UPDATE orders SET
       courier = 'Steadfast',
-      consignment_id = ?,
-      tracking_code = ?,
-      tracking_number = ?,
-      courier_status = ?,
+      consignment_id = $1,
+      tracking_code = $2,
+      tracking_number = $3,
+      courier_status = $4,
       status = 'shipped',
-      shipped_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?`).run(c.consignment_id, c.tracking_code, c.tracking_code, c.status || 'in_review', orderId);
+      shipped_at = NOW(),
+      updated_at = NOW()
+    WHERE id = $5`, [c.consignment_id, c.tracking_code, c.tracking_code, c.status || 'in_review', orderId]);
 
     return { success: true, consignment: c };
   }
@@ -131,7 +138,7 @@ async function sendOrderToCourier(orderId) {
   throw new Error(result.message || 'Steadfast API error');
 }
 
-function handleCourierStatusUpdate(db, order, newStatus, deliveryCharge, trackingMessage) {
+async function handleCourierStatusUpdate(order, newStatus, deliveryCharge, trackingMessage) {
   const statusMap = {
     'pending': 'shipped',
     'in_review': 'shipped',
@@ -148,47 +155,46 @@ function handleCourierStatusUpdate(db, order, newStatus, deliveryCharge, trackin
   const mappedStatus = statusMap[newStatus] || 'shipped';
   const charge = Number(deliveryCharge) || 0;
 
-  db.prepare(`UPDATE orders SET
-    courier_status = ?,
-    courier_message = ?,
-    delivery_charge = ?,
-    status = ?,
-    updated_at = CURRENT_TIMESTAMP
-    ${mappedStatus === 'delivered' ? ", delivered_at = CURRENT_TIMESTAMP, payment_status = 'paid'" : ''}
-  WHERE id = ?`).run(newStatus, trackingMessage || '', charge, mappedStatus, order.id);
+  let updateSql = `UPDATE orders SET
+    courier_status = $1,
+    courier_message = $2,
+    delivery_charge = $3,
+    status = $4,
+    updated_at = NOW()`;
+  const params = [newStatus, trackingMessage || '', charge, mappedStatus];
 
   if (mappedStatus === 'delivered') {
-    // Auto-record delivery charge as expense
+    updateSql += `, delivered_at = NOW(), payment_status = 'paid'`;
+  }
+  updateSql += ` WHERE id = $${params.length + 1}`;
+  params.push(order.id);
+
+  await pool.query(updateSql, params);
+
+  if (mappedStatus === 'delivered') {
     if (charge > 0) {
-      db.prepare('INSERT INTO expenses (category, amount, description, date) VALUES (?, ?, ?, ?)').run(
-        'কুরিয়ার', charge,
-        `Steadfast চার্জ — ${order.order_number}`,
-        new Date().toISOString().split('T')[0]
-      );
+      await pool.query('INSERT INTO expenses (category, amount, description, date) VALUES ($1, $2, $3, $4)',
+        ['Courier', charge, `Steadfast charge - ${order.order_number}`, new Date().toISOString().split('T')[0]]);
     }
-    // Update customer total
     if (order.customer_id) {
-      db.prepare('UPDATE customers SET total_spent = total_spent + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(order.total_amount, order.customer_id);
+      await pool.query('UPDATE customers SET total_spent = total_spent + $1, updated_at = NOW() WHERE id = $2', [order.total_amount, order.customer_id]);
     }
   }
 
   if (mappedStatus === 'cancelled') {
-    // Restore stock
-    const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-    const restoreStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
-    items.forEach(item => { if (item.product_id) restoreStock.run(item.quantity, item.product_id); });
-
-    // Record delivery charge as loss if charged
+    const items = await pool.query('SELECT * FROM order_items WHERE order_id = $1', [order.id]);
+    for (const item of items.rows) {
+      if (item.product_id) {
+        await pool.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
+      }
+    }
     if (charge > 0) {
-      db.prepare('INSERT INTO expenses (category, amount, description, date) VALUES (?, ?, ?, ?)').run(
-        'কুরিয়ার (বাতিল)', charge,
-        `Steadfast রিটার্ন চার্জ — ${order.order_number}`,
-        new Date().toISOString().split('T')[0]
-      );
+      await pool.query('INSERT INTO expenses (category, amount, description, date) VALUES ($1, $2, $3, $4)',
+        ['Courier (Cancelled)', charge, `Steadfast return charge - ${order.order_number}`, new Date().toISOString().split('T')[0]]);
     }
   }
 
-  console.log(`Order ${order.order_number}: ${newStatus} → ${mappedStatus}`);
+  console.log(`Order ${order.order_number}: ${newStatus} -> ${mappedStatus}`);
 }
 
 // ===== FACEBOOK CONVERSION API =====
@@ -198,8 +204,8 @@ function hashSHA256(value) {
   return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
 }
 
-function sendFBConversionEvent(eventName, eventData, userData, customData, sourceUrl) {
-  const settings = getSettings();
+async function sendFBConversionEvent(eventName, eventData, userData, customData, sourceUrl) {
+  const settings = await getSettings();
   const pixelId = settings.facebook_pixel_id;
   const accessToken = settings.facebook_access_token;
   if (!pixelId || !accessToken) return;
@@ -252,69 +258,78 @@ function sendFBConversionEvent(eventName, eventData, userData, customData, sourc
 
 // ===== PUBLIC API =====
 
-app.get('/api/settings', (req, res) => {
-  const s = getSettings();
-  res.json({
-    shop_name: s.shop_name,
-    shop_name_en: s.shop_name_en,
-    shop_phone: s.shop_phone,
-    shipping_inside_dhaka: Number(s.shipping_inside_dhaka),
-    shipping_outside_dhaka: Number(s.shipping_outside_dhaka),
-    currency: s.currency,
-    cod_enabled: s.cod_enabled === '1',
-    bkash_enabled: s.bkash_enabled === '1',
-    bkash_number: s.bkash_number,
-    nagad_enabled: s.nagad_enabled === '1',
-    nagad_number: s.nagad_number,
-    whatsapp_number: s.whatsapp_number,
-    messenger_link: s.messenger_link,
-    facebook_page: s.facebook_page,
-    facebook_pixel_id: s.facebook_pixel_id || '',
-  });
+app.get('/api/settings', async (req, res) => {
+  try {
+    const s = await getSettings();
+    res.json({
+      shop_name: s.shop_name,
+      shop_name_en: s.shop_name_en,
+      shop_phone: s.shop_phone,
+      shipping_inside_dhaka: Number(s.shipping_inside_dhaka),
+      shipping_outside_dhaka: Number(s.shipping_outside_dhaka),
+      currency: s.currency,
+      cod_enabled: s.cod_enabled === '1',
+      bkash_enabled: s.bkash_enabled === '1',
+      bkash_number: s.bkash_number,
+      nagad_enabled: s.nagad_enabled === '1',
+      nagad_number: s.nagad_number,
+      whatsapp_number: s.whatsapp_number,
+      messenger_link: s.messenger_link,
+      facebook_page: s.facebook_page,
+      facebook_pixel_id: s.facebook_pixel_id || '',
+    });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/products', (req, res) => {
-  const db = getDb();
-  const { category, featured, search, page = 1, limit = 20 } = req.query;
-  let sql = 'SELECT p.*, c.name as category_name, c.name_bn as category_name_bn FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.is_active = 1';
-  const params = [];
+app.get('/api/products', async (req, res) => {
+  try {
+    const { category, featured, search, page = 1, limit = 20 } = req.query;
+    let sql = 'SELECT p.*, c.name as category_name, c.name_bn as category_name_bn FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.is_active = 1';
+    const params = [];
+    let paramIndex = 1;
 
-  if (category) {
-    sql += ' AND c.slug = ?';
-    params.push(category);
-  }
-  if (featured === '1') {
-    sql += ' AND p.is_featured = 1';
-  }
-  if (search) {
-    sql += ' AND (p.name LIKE ? OR p.name_bn LIKE ? OR p.description LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
-  }
+    if (category) {
+      sql += ` AND c.slug = $${paramIndex++}`;
+      params.push(category);
+    }
+    if (featured === '1') {
+      sql += ' AND p.is_featured = 1';
+    }
+    if (search) {
+      sql += ` AND (p.name ILIKE $${paramIndex} OR p.name_bn ILIKE $${paramIndex + 1} OR p.description ILIKE $${paramIndex + 2})`;
+      const s = `%${search}%`;
+      params.push(s, s, s);
+      paramIndex += 3;
+    }
 
-  const countSql = sql.replace('SELECT p.*, c.name as category_name, c.name_bn as category_name_bn', 'SELECT COUNT(*) as total');
-  const total = db.prepare(countSql).get(...params).total;
+    const countSql = sql.replace('SELECT p.*, c.name as category_name, c.name_bn as category_name_bn', 'SELECT COUNT(*) as total');
+    const countResult = await pool.query(countSql, params);
+    const total = parseInt(countResult.rows[0].total);
 
-  sql += ' ORDER BY p.is_featured DESC, p.created_at DESC LIMIT ? OFFSET ?';
-  const offset = (Number(page) - 1) * Number(limit);
-  params.push(Number(limit), offset);
+    sql += ` ORDER BY p.is_featured DESC, p.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    const offset = (Number(page) - 1) * Number(limit);
+    params.push(Number(limit), offset);
 
-  const products = db.prepare(sql).all(...params);
-  res.json({ products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    const result = await pool.query(sql, params);
+    res.json({ products: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/products/:slug', (req, res) => {
-  const db = getDb();
-  const product = db.prepare('SELECT p.*, c.name as category_name, c.name_bn as category_name_bn FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = ? AND p.is_active = 1').get(req.params.slug);
-  if (!product) return res.status(404).json({ error: 'Product not found' });
-  db.prepare('UPDATE products SET views = views + 1 WHERE id = ?').run(product.id);
-  res.json(product);
+app.get('/api/products/:slug', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT p.*, c.name as category_name, c.name_bn as category_name_bn FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.slug = $1 AND p.is_active = 1', [req.params.slug]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Product not found' });
+    const product = result.rows[0];
+    await pool.query('UPDATE products SET views = views + 1 WHERE id = $1', [product.id]);
+    res.json(product);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/categories', (req, res) => {
-  const db = getDb();
-  const categories = db.prepare('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC').all();
-  res.json(categories);
+app.get('/api/categories', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== FRAUD PROTECTION =====
@@ -327,8 +342,8 @@ function getClientIP(req) {
   return req.ip || req.connection?.remoteAddress || '';
 }
 
-function checkFraudBlocking(db, phoneClean, ip, fingerprint) {
-  const settings = getSettings();
+async function checkFraudBlocking(phoneClean, ip, fingerprint) {
+  const settings = await getSettings();
   if (settings.fraud_protection_enabled !== '1') return null;
 
   const now = new Date().toISOString();
@@ -346,8 +361,8 @@ function checkFraudBlocking(db, phoneClean, ip, fingerprint) {
   }
 
   for (const check of blockChecks) {
-    const blocked = db.prepare('SELECT * FROM blocked_entries WHERE type = ? AND value = ? AND (expires_at IS NULL OR expires_at > ?)').get(check.type, check.value, now);
-    if (blocked) return { blocked: true, reason: `manual_${check.type}`, message: `Blocked by ${check.type}` };
+    const blocked = await pool.query('SELECT * FROM blocked_entries WHERE type = $1 AND value = $2 AND (expires_at IS NULL OR expires_at > $3)', [check.type, check.value, now]);
+    if (blocked.rows.length > 0) return { blocked: true, reason: `manual_${check.type}`, message: `Blocked by ${check.type}` };
   }
 
   // 2. BD Phone validation
@@ -360,158 +375,163 @@ function checkFraudBlocking(db, phoneClean, ip, fingerprint) {
   // 3. Incomplete order block
   if (settings.fraud_incomplete_order_block === '1' && phoneClean) {
     const statuses = (settings.fraud_incomplete_statuses || 'pending,flagged').split(',').map(s => s.trim());
-    const placeholders = statuses.map(() => '?').join(',');
-    const incomplete = db.prepare(`SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status IN (${placeholders})`).get(phoneClean, ...statuses);
-    if (incomplete.c > 0) return { blocked: true, reason: 'incomplete_order', message: 'You have incomplete orders' };
+    const placeholders = statuses.map((_, i) => `$${i + 2}`).join(',');
+    const incomplete = await pool.query(`SELECT COUNT(*) as c FROM orders WHERE phone = $1 AND status IN (${placeholders})`, [phoneClean, ...statuses]);
+    if (parseInt(incomplete.rows[0].c) > 0) return { blocked: true, reason: 'incomplete_order', message: 'You have incomplete orders' };
   }
 
   // 4. Processing cooldown
   if (settings.fraud_processing_cooldown_enabled === '1' && phoneClean) {
     const hours = Number(settings.fraud_processing_cooldown_hours) || 24;
     const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-    const recent = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status = 'processing' AND created_at > ?").get(phoneClean, cutoff);
-    if (recent.c > 0) return { blocked: true, reason: 'processing_cooldown', message: `Please wait ${hours}h before ordering again` };
+    const recent = await pool.query("SELECT COUNT(*) as c FROM orders WHERE phone = $1 AND status = 'processing' AND created_at > $2", [phoneClean, cutoff]);
+    if (parseInt(recent.rows[0].c) > 0) return { blocked: true, reason: 'processing_cooldown', message: `Please wait ${hours}h before ordering again` };
   }
 
-  // 5. Rate limiting (max orders per day)
+  // 5. Rate limiting
   const maxPerPhone = Number(settings.fraud_max_orders_per_phone_day) || 3;
   const maxPerIP = Number(settings.fraud_max_orders_per_ip_day) || 5;
   const today = new Date().toISOString().split('T')[0];
 
   if (phoneClean) {
-    const phoneOrders = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND DATE(created_at) = ?").get(phoneClean, today);
-    if (phoneOrders.c >= maxPerPhone) return { blocked: true, reason: 'rate_limit_phone', message: `Maximum ${maxPerPhone} orders per day exceeded` };
+    const phoneOrders = await pool.query("SELECT COUNT(*) as c FROM orders WHERE phone = $1 AND DATE(created_at) = $2", [phoneClean, today]);
+    if (parseInt(phoneOrders.rows[0].c) >= maxPerPhone) return { blocked: true, reason: 'rate_limit_phone', message: `Maximum ${maxPerPhone} orders per day exceeded` };
   }
   if (ip) {
-    const ipOrders = db.prepare("SELECT COUNT(*) as c FROM orders WHERE ip_address = ? AND DATE(created_at) = ?").get(ip, today);
-    if (ipOrders.c >= maxPerIP) return { blocked: true, reason: 'rate_limit_ip', message: `Maximum ${maxPerIP} orders per day exceeded` };
+    const ipOrders = await pool.query("SELECT COUNT(*) as c FROM orders WHERE ip_address = $1 AND DATE(created_at) = $2", [ip, today]);
+    if (parseInt(ipOrders.rows[0].c) >= maxPerIP) return { blocked: true, reason: 'rate_limit_ip', message: `Maximum ${maxPerIP} orders per day exceeded` };
   }
 
   return null;
 }
 
-function logBlockAttempt(db, phone, ip, fingerprint, reason, orderData) {
-  db.prepare('INSERT INTO block_attempts (phone, ip, fingerprint, reason, order_data) VALUES (?, ?, ?, ?, ?)').run(phone || '', ip || '', fingerprint || '', reason, JSON.stringify(orderData || {}));
+async function logBlockAttempt(phone, ip, fingerprint, reason, orderData) {
+  await pool.query('INSERT INTO block_attempts (phone, ip, fingerprint, reason, order_data) VALUES ($1, $2, $3, $4, $5)', [phone || '', ip || '', fingerprint || '', reason, JSON.stringify(orderData || {})]);
 }
 
-app.post('/api/orders', (req, res) => {
-  const db = getDb();
-  const { customer_name, phone, address, district, city, area, items, hadiya_amount, payment_method, problem_description, coupon_code } = req.body;
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { customer_name, phone, address, district, city, area, items, hadiya_amount, payment_method, problem_description, coupon_code } = req.body;
 
-  if (!customer_name || !phone || !address || !items || !items.length) {
-    return res.status(400).json({ error: 'নাম, ফোন, ঠিকানা এবং পণ্য প্রয়োজন' });
-  }
-
-  const phoneClean = phone.replace(/[^0-9]/g, '');
-  if (phoneClean.length < 11) {
-    return res.status(400).json({ error: 'সঠিক ফোন নম্বর দিন' });
-  }
-
-  // Fraud check
-  const clientIP = getClientIP(req);
-  const fingerprint = req.body._fingerprint || '';
-  const fraudResult = checkFraudBlocking(db, phoneClean, clientIP, fingerprint);
-  if (fraudResult && fraudResult.blocked) {
-    const s = getSettings();
-    logBlockAttempt(db, phoneClean, clientIP, fingerprint, fraudResult.reason, { customer_name, phone: phoneClean });
-    return res.status(403).json({
-      error: 'blocked',
-      reason: fraudResult.reason,
-      title: s.block_message_title || 'Order Blocked',
-      message: s.block_message_text || fraudResult.message,
-      phone: s.block_message_phone,
-      whatsapp: s.block_message_whatsapp,
-      messenger: s.block_message_messenger
-    });
-  }
-
-  let subtotal = 0;
-  const orderItems = [];
-  for (const item of items) {
-    const product = db.prepare('SELECT * FROM products WHERE id = ? AND is_active = 1').get(item.product_id);
-    if (!product) return res.status(400).json({ error: `পণ্য পাওয়া যায়নি (ID: ${item.product_id})` });
-    if (product.stock < item.quantity) return res.status(400).json({ error: `"${product.name_bn || product.name}" স্টকে নেই` });
-    const price = product.sale_price || product.price;
-    const total = price * item.quantity;
-    subtotal += total;
-    orderItems.push({ product_id: product.id, product_name: product.name_bn || product.name, quantity: item.quantity, price, total });
-  }
-
-  let discount = 0;
-  if (coupon_code) {
-    const coupon = db.prepare('SELECT * FROM coupons WHERE code = ? AND is_active = 1').get(coupon_code.toUpperCase());
-    if (coupon) {
-      if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
-        return res.status(400).json({ error: 'কুপন মেয়াদ শেষ' });
-      }
-      if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
-        return res.status(400).json({ error: 'কুপন ব্যবহারের সীমা শেষ' });
-      }
-      if (subtotal < coupon.min_order) {
-        return res.status(400).json({ error: `ন্যূনতম অর্ডার ৳${coupon.min_order} হতে হবে` });
-      }
-      discount = coupon.type === 'percent' ? subtotal * (coupon.value / 100) : coupon.value;
-      if (discount > subtotal) discount = subtotal;
-      db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(coupon.id);
+    if (!customer_name || !phone || !address || !items || !items.length) {
+      return res.status(400).json({ error: 'Name, phone, address and products are required' });
     }
-  }
 
-  const settings = getSettings();
-  const isDhaka = district && district.toLowerCase().includes('dhaka');
-  const shippingCost = isDhaka ? Number(settings.shipping_inside_dhaka) : Number(settings.shipping_outside_dhaka);
-  const totalAmount = subtotal - discount + shippingCost;
+    const phoneClean = phone.replace(/[^0-9]/g, '');
+    if (phoneClean.length < 11) {
+      return res.status(400).json({ error: 'Please enter a valid phone number' });
+    }
 
-  const orderNumber = generateOrderNumber();
+    // Fraud check
+    const clientIP = getClientIP(req);
+    const fingerprint = req.body._fingerprint || '';
+    const fraudResult = await checkFraudBlocking(phoneClean, clientIP, fingerprint);
+    if (fraudResult && fraudResult.blocked) {
+      const s = await getSettings();
+      await logBlockAttempt(phoneClean, clientIP, fingerprint, fraudResult.reason, { customer_name, phone: phoneClean });
+      return res.status(403).json({
+        error: 'blocked',
+        reason: fraudResult.reason,
+        title: s.block_message_title || 'Order Blocked',
+        message: s.block_message_text || fraudResult.message,
+        phone: s.block_message_phone,
+        whatsapp: s.block_message_whatsapp,
+        messenger: s.block_message_messenger
+      });
+    }
 
-  let customer = db.prepare('SELECT * FROM customers WHERE phone = ?').get(phoneClean);
-  if (customer) {
-    db.prepare('UPDATE customers SET name = ?, address = ?, district = ?, city = ?, area = ?, total_orders = total_orders + 1, total_spent = total_spent + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(customer_name, address, district || '', city || '', area || '', totalAmount, customer.id);
-  } else {
-    const result = db.prepare('INSERT INTO customers (name, phone, address, district, city, area, total_orders, total_spent) VALUES (?, ?, ?, ?, ?, ?, 1, ?)')
-      .run(customer_name, phoneClean, address, district || '', city || '', area || '', totalAmount);
-    customer = { id: result.lastInsertRowid };
-  }
+    let subtotal = 0;
+    const orderItems = [];
+    for (const item of items) {
+      const prodResult = await pool.query('SELECT * FROM products WHERE id = $1 AND is_active = 1', [item.product_id]);
+      if (prodResult.rows.length === 0) return res.status(400).json({ error: `Product not found (ID: ${item.product_id})` });
+      const product = prodResult.rows[0];
+      if (product.stock < item.quantity) return res.status(400).json({ error: `"${product.name_bn || product.name}" is out of stock` });
+      const price = product.sale_price || product.price;
+      const total = price * item.quantity;
+      subtotal += total;
+      orderItems.push({ product_id: product.id, product_name: product.name_bn || product.name, quantity: item.quantity, price, total });
+    }
 
-  const fraudScore = calculateFraudScore(db, phoneClean);
+    let discount = 0;
+    if (coupon_code) {
+      const couponResult = await pool.query('SELECT * FROM coupons WHERE code = $1 AND is_active = 1', [coupon_code.toUpperCase()]);
+      if (couponResult.rows.length > 0) {
+        const coupon = couponResult.rows[0];
+        if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {
+          return res.status(400).json({ error: 'Coupon has expired' });
+        }
+        if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+          return res.status(400).json({ error: 'Coupon usage limit reached' });
+        }
+        if (subtotal < coupon.min_order) {
+          return res.status(400).json({ error: `Minimum order of TK ${coupon.min_order} required` });
+        }
+        discount = coupon.type === 'percent' ? subtotal * (coupon.value / 100) : coupon.value;
+        if (discount > subtotal) discount = subtotal;
+        await pool.query('UPDATE coupons SET used_count = used_count + 1 WHERE id = $1', [coupon.id]);
+      }
+    }
 
-  const orderResult = db.prepare(`INSERT INTO orders (order_number, customer_id, customer_name, phone, address, district, city, area, subtotal, shipping_cost, discount, total_amount, hadiya_amount, status, payment_method, payment_status, problem_description, ip_address)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(orderNumber, customer.id, customer_name, phoneClean, address, district || '', city || '', area || '', subtotal, shippingCost, discount, totalAmount, hadiya_amount || 0, fraudScore > 70 ? 'flagged' : 'pending', payment_method || 'cod', 'unpaid', problem_description || '', req.ip);
+    const settings = await getSettings();
+    const isDhaka = district && district.toLowerCase().includes('dhaka');
+    const shippingCost = isDhaka ? Number(settings.shipping_inside_dhaka) : Number(settings.shipping_outside_dhaka);
+    const totalAmount = subtotal - discount + shippingCost;
 
-  const orderId = orderResult.lastInsertRowid;
-  const insertItem = db.prepare('INSERT INTO order_items (order_id, product_id, product_name, quantity, price, total) VALUES (?, ?, ?, ?, ?, ?)');
-  const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
+    const orderNumber = generateOrderNumber();
 
-  for (const item of orderItems) {
-    insertItem.run(orderId, item.product_id, item.product_name, item.quantity, item.price, item.total);
-    updateStock.run(item.quantity, item.product_id);
-  }
+    const custResult = await pool.query('SELECT * FROM customers WHERE phone = $1', [phoneClean]);
+    let customerId;
+    if (custResult.rows.length > 0) {
+      const customer = custResult.rows[0];
+      customerId = customer.id;
+      await pool.query('UPDATE customers SET name = $1, address = $2, district = $3, city = $4, area = $5, total_orders = total_orders + 1, total_spent = total_spent + $6, updated_at = NOW() WHERE id = $7',
+        [customer_name, address, district || '', city || '', area || '', totalAmount, customer.id]);
+    } else {
+      const newCust = await pool.query('INSERT INTO customers (name, phone, address, district, city, area, total_orders, total_spent) VALUES ($1, $2, $3, $4, $5, $6, 1, $7) RETURNING id',
+        [customer_name, phoneClean, address, district || '', city || '', area || '', totalAmount]);
+      customerId = newCust.rows[0].id;
+    }
 
-  // Facebook Conversion API — Purchase Event (Server-Side)
-  const eventId = `purchase_${orderNumber}_${Date.now()}`;
-  sendFBConversionEvent('Purchase', { event_id: eventId }, {
-    phone: phoneClean,
-    name: customer_name,
-    city: city || district || '',
-    ip: req.ip,
-    user_agent: req.headers['user-agent'],
-    fbc: req.body._fbc || null,
-    fbp: req.body._fbp || null,
-  }, {
-    currency: 'BDT',
-    value: totalAmount,
-    content_type: 'product',
-    contents: orderItems.map(i => ({ id: String(i.product_id), quantity: i.quantity, item_price: i.price })),
-    order_id: orderNumber,
-    num_items: orderItems.reduce((s, i) => s + i.quantity, 0),
-  }, req.body._source_url || '');
+    const fraudScore = await calculateFraudScore(phoneClean);
 
-  res.json({ success: true, order_number: orderNumber, total: totalAmount, event_id: eventId, message: 'অর্ডার সফলভাবে সম্পন্ন হয়েছে!' });
+    const orderResult = await pool.query(`INSERT INTO orders (order_number, customer_id, customer_name, phone, address, district, city, area, subtotal, shipping_cost, discount, total_amount, hadiya_amount, status, payment_method, payment_status, problem_description, ip_address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+      [orderNumber, customerId, customer_name, phoneClean, address, district || '', city || '', area || '', subtotal, shippingCost, discount, totalAmount, hadiya_amount || 0, fraudScore > 70 ? 'flagged' : 'pending', payment_method || 'cod', 'unpaid', problem_description || '', req.ip]);
+
+    const orderId = orderResult.rows[0].id;
+
+    for (const item of orderItems) {
+      await pool.query('INSERT INTO order_items (order_id, product_id, product_name, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)',
+        [orderId, item.product_id, item.product_name, item.quantity, item.price, item.total]);
+      await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.product_id]);
+    }
+
+    // Facebook Conversion API
+    const eventId = `purchase_${orderNumber}_${Date.now()}`;
+    sendFBConversionEvent('Purchase', { event_id: eventId }, {
+      phone: phoneClean,
+      name: customer_name,
+      city: city || district || '',
+      ip: req.ip,
+      user_agent: req.headers['user-agent'],
+      fbc: req.body._fbc || null,
+      fbp: req.body._fbp || null,
+    }, {
+      currency: 'BDT',
+      value: totalAmount,
+      content_type: 'product',
+      contents: orderItems.map(i => ({ id: String(i.product_id), quantity: i.quantity, item_price: i.price })),
+      order_id: orderNumber,
+      num_items: orderItems.reduce((s, i) => s + i.quantity, 0),
+    }, req.body._source_url || '');
+
+    res.json({ success: true, order_number: orderNumber, total: totalAmount, event_id: eventId, message: 'Order placed successfully!' });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-// Server-side CAPI relay for client events (deduplication with browser Pixel)
-app.post('/api/fb-event', (req, res) => {
+// Server-side CAPI relay for client events
+app.post('/api/fb-event', async (req, res) => {
   const { event_name, event_id, custom_data, user_data, source_url } = req.body;
   if (!event_name) return res.status(400).json({ error: 'event_name required' });
 
@@ -528,53 +548,59 @@ app.post('/api/fb-event', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/orders/track/:orderNumber', (req, res) => {
-  const db = getDb();
-  const order = db.prepare('SELECT order_number, customer_name, status, total_amount, shipping_cost, payment_method, payment_status, courier, tracking_number, created_at FROM orders WHERE order_number = ?').get(req.params.orderNumber);
-  if (!order) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
-  const items = db.prepare('SELECT product_name, quantity, price, total FROM order_items WHERE order_id = (SELECT id FROM orders WHERE order_number = ?)').all(req.params.orderNumber);
-  res.json({ order, items });
+app.get('/api/orders/track/:orderNumber', async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT order_number, customer_name, status, total_amount, shipping_cost, payment_method, payment_status, courier, tracking_number, created_at FROM orders WHERE order_number = $1', [req.params.orderNumber]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    const itemsResult = await pool.query('SELECT product_name, quantity, price, total FROM order_items WHERE order_id = (SELECT id FROM orders WHERE order_number = $1)', [req.params.orderNumber]);
+    res.json({ order: orderResult.rows[0], items: itemsResult.rows });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/coupon/verify', (req, res) => {
-  const db = getDb();
-  const { code } = req.body;
-  const coupon = db.prepare('SELECT * FROM coupons WHERE code = ? AND is_active = 1').get((code || '').toUpperCase());
-  if (!coupon) return res.status(404).json({ error: 'কুপন পাওয়া যায়নি' });
-  if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) return res.status(400).json({ error: 'কুপন মেয়াদ শেষ' });
-  if (coupon.max_uses && coupon.used_count >= coupon.max_uses) return res.status(400).json({ error: 'কুপন ব্যবহারের সীমা শেষ' });
-  res.json({ type: coupon.type, value: coupon.value, min_order: coupon.min_order });
+app.post('/api/coupon/verify', async (req, res) => {
+  try {
+    const { code } = req.body;
+    const result = await pool.query('SELECT * FROM coupons WHERE code = $1 AND is_active = 1', [(code || '').toUpperCase()]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Coupon not found' });
+    const coupon = result.rows[0];
+    if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) return res.status(400).json({ error: 'Coupon has expired' });
+    if (coupon.max_uses && coupon.used_count >= coupon.max_uses) return res.status(400).json({ error: 'Coupon usage limit reached' });
+    res.json({ type: coupon.type, value: coupon.value, min_order: coupon.min_order });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-function calculateFraudScore(db, phone) {
-  const customer = db.prepare('SELECT * FROM customers WHERE phone = ?').get(phone);
-  if (!customer) return 0;
+async function calculateFraudScore(phone) {
+  const custResult = await pool.query('SELECT * FROM customers WHERE phone = $1', [phone]);
+  if (custResult.rows.length === 0) return 0;
+  const customer = custResult.rows[0];
   let score = 0;
-  const cancelled = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status = 'cancelled'").get(phone).c;
-  const returned = db.prepare("SELECT COUNT(*) as c FROM orders WHERE phone = ? AND status = 'returned'").get(phone).c;
-  const total = db.prepare('SELECT COUNT(*) as c FROM orders WHERE phone = ?').get(phone).c;
-  if (total > 0) {
-    const failRate = (cancelled + returned) / total;
+  const cancelled = (await pool.query("SELECT COUNT(*) as c FROM orders WHERE phone = $1 AND status = 'cancelled'", [phone])).rows[0].c;
+  const returned = (await pool.query("SELECT COUNT(*) as c FROM orders WHERE phone = $1 AND status = 'returned'", [phone])).rows[0].c;
+  const total = (await pool.query('SELECT COUNT(*) as c FROM orders WHERE phone = $1', [phone])).rows[0].c;
+  if (parseInt(total) > 0) {
+    const failRate = (parseInt(cancelled) + parseInt(returned)) / parseInt(total);
     if (failRate > 0.5) score += 50;
     else if (failRate > 0.3) score += 30;
   }
-  if (cancelled > 3) score += 20;
-  if (returned > 2) score += 20;
+  if (parseInt(cancelled) > 3) score += 20;
+  if (parseInt(returned) > 2) score += 20;
   if (customer.is_blocked) score = 100;
   return Math.min(score, 100);
 }
 
 // ===== ADMIN AUTH =====
 
-app.post('/api/admin/login', (req, res) => {
-  const db = getDb();
-  const { username, password } = req.body;
-  const user = db.prepare('SELECT * FROM admin_users WHERE username = ?').get(username);
-  if (!user || !bcrypt.compareSync(password, user.password)) {
-    return res.status(401).json({ error: 'ভুল ইউজারনেম বা পাসওয়ার্ড' });
-  }
-  req.session.admin = { id: user.id, username: user.username, name: user.name, role: user.role };
-  res.json({ success: true, user: { name: user.name, role: user.role } });
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const result = await pool.query('SELECT * FROM admin_users WHERE username = $1', [username]);
+    if (result.rows.length === 0 || !bcrypt.compareSync(password, result.rows[0].password)) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    const user = result.rows[0];
+    req.session.admin = { id: user.id, username: user.username, name: user.name, role: user.role };
+    res.json({ success: true, user: { name: user.name, role: user.role } });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 app.post('/api/admin/logout', (req, res) => {
@@ -588,130 +614,145 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
 
 // ===== ADMIN DASHBOARD =====
 
-app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
-  const db = getDb();
-  const today = new Date().toISOString().split('T')[0];
-  const monthStart = today.slice(0, 7) + '-01';
+app.get('/api/admin/dashboard', requireAdmin, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const monthStart = today.slice(0, 7) + '-01';
 
-  const todaySales = db.prepare("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = ? AND status != 'cancelled'").get(today);
-  const monthSales = db.prepare("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) >= ? AND status != 'cancelled'").get(monthStart);
-  const totalOrders = db.prepare('SELECT COUNT(*) as c FROM orders').get().c;
-  const totalCustomers = db.prepare('SELECT COUNT(*) as c FROM customers').get().c;
-  const totalProducts = db.prepare('SELECT COUNT(*) as c FROM products WHERE is_active = 1').get().c;
+    const todaySales = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [today])).rows[0];
+    const monthSales = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) >= $1 AND status != 'cancelled'", [monthStart])).rows[0];
+    const totalOrders = parseInt((await pool.query('SELECT COUNT(*) as c FROM orders')).rows[0].c);
+    const totalCustomers = parseInt((await pool.query('SELECT COUNT(*) as c FROM customers')).rows[0].c);
+    const totalProducts = parseInt((await pool.query('SELECT COUNT(*) as c FROM products WHERE is_active = 1')).rows[0].c);
 
-  const statusCounts = db.prepare("SELECT status, COUNT(*) as c FROM orders GROUP BY status").all();
-  const statusMap = {};
-  statusCounts.forEach(s => { statusMap[s.status] = s.c; });
+    const statusCounts = (await pool.query("SELECT status, COUNT(*) as c FROM orders GROUP BY status")).rows;
+    const statusMap = {};
+    statusCounts.forEach(s => { statusMap[s.status] = parseInt(s.c); });
 
-  const pendingOrders = statusMap.pending || 0;
-  const confirmedOrders = statusMap.confirmed || 0;
-  const shippedOrders = statusMap.shipped || 0;
-  const deliveredOrders = statusMap.delivered || 0;
-  const cancelledOrders = statusMap.cancelled || 0;
-  const returnedOrders = statusMap.returned || 0;
-  const flaggedOrders = statusMap.flagged || 0;
+    const pendingOrders = statusMap.pending || 0;
+    const confirmedOrders = statusMap.confirmed || 0;
+    const shippedOrders = statusMap.shipped || 0;
+    const deliveredOrders = statusMap.delivered || 0;
+    const cancelledOrders = statusMap.cancelled || 0;
+    const returnedOrders = statusMap.returned || 0;
+    const flaggedOrders = statusMap.flagged || 0;
 
-  const lowStockProducts = db.prepare('SELECT id, name, name_bn, stock, low_stock_alert FROM products WHERE is_active = 1 AND stock <= low_stock_alert ORDER BY stock ASC LIMIT 10').all();
+    const lowStockProducts = (await pool.query('SELECT id, name, name_bn, stock, low_stock_alert FROM products WHERE is_active = 1 AND stock <= low_stock_alert ORDER BY stock ASC LIMIT 10')).rows;
 
-  const recentOrders = db.prepare('SELECT order_number, customer_name, phone, total_amount, status, created_at FROM orders ORDER BY created_at DESC LIMIT 10').all();
+    const recentOrders = (await pool.query('SELECT order_number, customer_name, phone, total_amount, status, created_at FROM orders ORDER BY created_at DESC LIMIT 10')).rows;
 
-  const last7Days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const data = db.prepare("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = ? AND status != 'cancelled'").get(dateStr);
-    last7Days.push({ date: dateStr, orders: data.orders, revenue: data.revenue });
-  }
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const data = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [dateStr])).rows[0];
+      last7Days.push({ date: dateStr, orders: parseInt(data.orders), revenue: parseFloat(data.revenue) });
+    }
 
-  const delivered = db.prepare("SELECT COALESCE(SUM(total_amount),0) as total FROM orders WHERE status = 'delivered'").get().total;
-  const totalExpenses = db.prepare('SELECT COALESCE(SUM(amount),0) as total FROM expenses').get().total;
-  const costOfGoods = db.prepare("SELECT COALESCE(SUM(oi.quantity * p.cost_price),0) as total FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE o.status = 'delivered'").get().total;
+    const delivered = parseFloat((await pool.query("SELECT COALESCE(SUM(total_amount),0) as total FROM orders WHERE status = 'delivered'")).rows[0].total);
+    const totalExpenses = parseFloat((await pool.query('SELECT COALESCE(SUM(amount),0) as total FROM expenses')).rows[0].total);
+    const costOfGoods = parseFloat((await pool.query("SELECT COALESCE(SUM(oi.quantity * p.cost_price),0) as total FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE o.status = 'delivered'")).rows[0].total);
 
-  res.json({
-    today: todaySales,
-    month: monthSales,
-    totalOrders, totalCustomers, totalProducts,
-    pendingOrders, confirmedOrders, shippedOrders, deliveredOrders, cancelledOrders, returnedOrders, flaggedOrders,
-    lowStockProducts,
-    recentOrders,
-    last7Days,
-    profit: { revenue: delivered, costOfGoods, expenses: totalExpenses, net: delivered - costOfGoods - totalExpenses }
-  });
+    res.json({
+      today: { orders: parseInt(todaySales.orders), revenue: parseFloat(todaySales.revenue) },
+      month: { orders: parseInt(monthSales.orders), revenue: parseFloat(monthSales.revenue) },
+      totalOrders, totalCustomers, totalProducts,
+      pendingOrders, confirmedOrders, shippedOrders, deliveredOrders, cancelledOrders, returnedOrders, flaggedOrders,
+      lowStockProducts,
+      recentOrders,
+      last7Days,
+      profit: { revenue: delivered, costOfGoods, expenses: totalExpenses, net: delivered - costOfGoods - totalExpenses }
+    });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN ORDERS =====
 
-app.get('/api/admin/orders', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { status, search, page = 1, limit = 25, date_from, date_to } = req.query;
-  let sql = 'SELECT * FROM orders WHERE 1=1';
-  const params = [];
+app.get('/api/admin/orders', requireAdmin, async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 25, date_from, date_to } = req.query;
+    let sql = 'SELECT * FROM orders WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
 
-  if (status && status !== 'all') { sql += ' AND status = ?'; params.push(status); }
-  if (search) {
-    sql += ' AND (order_number LIKE ? OR customer_name LIKE ? OR phone LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
-  }
-  if (date_from) { sql += ' AND DATE(created_at) >= ?'; params.push(date_from); }
-  if (date_to) { sql += ' AND DATE(created_at) <= ?'; params.push(date_to); }
+    if (status && status !== 'all') { sql += ` AND status = $${paramIndex++}`; params.push(status); }
+    if (search) {
+      sql += ` AND (order_number ILIKE $${paramIndex} OR customer_name ILIKE $${paramIndex + 1} OR phone ILIKE $${paramIndex + 2})`;
+      const s = `%${search}%`;
+      params.push(s, s, s);
+      paramIndex += 3;
+    }
+    if (date_from) { sql += ` AND DATE(created_at) >= $${paramIndex++}`; params.push(date_from); }
+    if (date_to) { sql += ` AND DATE(created_at) <= $${paramIndex++}`; params.push(date_to); }
 
-  const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
-  const total = db.prepare(countSql).get(...params).total;
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+    const total = parseInt((await pool.query(countSql, params)).rows[0].total);
 
-  sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-  const offset = (Number(page) - 1) * Number(limit);
-  params.push(Number(limit), offset);
+    sql += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    const offset = (Number(page) - 1) * Number(limit);
+    params.push(Number(limit), offset);
 
-  const orders = db.prepare(sql).all(...params);
-  res.json({ orders, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    const result = await pool.query(sql, params);
+    res.json({ orders: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/admin/orders/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Not found' });
-  const items = db.prepare('SELECT oi.*, p.image FROM order_items oi LEFT JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?').all(order.id);
-  const customer = order.customer_id ? db.prepare('SELECT * FROM customers WHERE id = ?').get(order.customer_id) : null;
-  res.json({ order, items, customer });
+app.get('/api/admin/orders/:id', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const order = orderResult.rows[0];
+    const items = (await pool.query('SELECT oi.*, p.image FROM order_items oi LEFT JOIN products p ON oi.product_id = p.id WHERE oi.order_id = $1', [order.id])).rows;
+    const customer = order.customer_id ? (await pool.query('SELECT * FROM customers WHERE id = $1', [order.customer_id])).rows[0] || null : null;
+    res.json({ order, items, customer });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/orders/:id/status', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { status } = req.body;
-  const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'returned', 'cancelled', 'flagged'];
-  if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+app.put('/api/admin/orders/:id/status', requireAdmin, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'returned', 'cancelled', 'flagged'];
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Not found' });
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const order = orderResult.rows[0];
 
-  const updates = { status, updated_at: new Date().toISOString() };
-  if (status === 'confirmed') updates.confirmed_at = new Date().toISOString();
-  if (status === 'shipped') updates.shipped_at = new Date().toISOString();
-  if (status === 'delivered') {
-    updates.delivered_at = new Date().toISOString();
-    updates.payment_status = 'paid';
-  }
+    let updateParts = ['status = $1', 'updated_at = NOW()'];
+    const updateParams = [status];
+    let paramIdx = 2;
 
-  if (status === 'cancelled' && order.status !== 'delivered') {
-    const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-    const restoreStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
-    items.forEach(item => { if (item.product_id) restoreStock.run(item.quantity, item.product_id); });
-  }
+    if (status === 'confirmed') { updateParts.push(`confirmed_at = NOW()`); }
+    if (status === 'shipped') { updateParts.push(`shipped_at = NOW()`); }
+    if (status === 'delivered') {
+      updateParts.push(`delivered_at = NOW()`);
+      updateParts.push(`payment_status = 'paid'`);
+    }
 
-  let setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE orders SET ${setClauses} WHERE id = ?`).run(...Object.values(updates), req.params.id);
+    if (status === 'cancelled' && order.status !== 'delivered') {
+      const items = (await pool.query('SELECT * FROM order_items WHERE order_id = $1', [order.id])).rows;
+      for (const item of items) {
+        if (item.product_id) {
+          await pool.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
+        }
+      }
+    }
 
-  res.json({ success: true });
+    updateParams.push(req.params.id);
+    await pool.query(`UPDATE orders SET ${updateParts.join(', ')} WHERE id = $${paramIdx}`, updateParams);
+
+    res.json({ success: true });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { courier, tracking_number, notes, payment_status } = req.body;
-  db.prepare('UPDATE orders SET courier = COALESCE(?, courier), tracking_number = COALESCE(?, tracking_number), notes = COALESCE(?, notes), payment_status = COALESCE(?, payment_status), updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(courier || null, tracking_number || null, notes || null, payment_status || null, req.params.id);
-  res.json({ success: true });
+app.put('/api/admin/orders/:id', requireAdmin, async (req, res) => {
+  try {
+    const { courier, tracking_number, notes, payment_status } = req.body;
+    await pool.query('UPDATE orders SET courier = COALESCE($1, courier), tracking_number = COALESCE($2, tracking_number), notes = COALESCE($3, notes), payment_status = COALESCE($4, payment_status), updated_at = NOW() WHERE id = $5',
+      [courier || null, tracking_number || null, notes || null, payment_status || null, req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // Send order to Steadfast Courier
@@ -726,13 +767,13 @@ app.post('/api/admin/orders/:id/send-courier', requireAdmin, async (req, res) =>
 
 // Check courier status manually
 app.get('/api/admin/orders/:id/courier-status', requireAdmin, async (req, res) => {
-  const db = getDb();
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-  if (!order || !order.consignment_id) return res.status(400).json({ error: 'No courier data' });
   try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (orderResult.rows.length === 0 || !orderResult.rows[0].consignment_id) return res.status(400).json({ error: 'No courier data' });
+    const order = orderResult.rows[0];
     const result = await steadfastRequest('GET', `/status_by_cid/${order.consignment_id}`);
     if (result.delivery_status) {
-      db.prepare('UPDATE orders SET courier_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(result.delivery_status, order.id);
+      await pool.query('UPDATE orders SET courier_status = $1, updated_at = NOW() WHERE id = $2', [result.delivery_status, order.id]);
     }
     res.json(result);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -746,263 +787,298 @@ app.get('/api/admin/courier/balance', requireAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/admin/orders/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM order_items WHERE order_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM orders WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/orders/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM order_items WHERE order_id = $1', [req.params.id]);
+    await pool.query('DELETE FROM orders WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== STEADFAST WEBHOOK =====
-// URL to set in Steadfast: https://your-domain.com/api/webhook/steadfast
-app.post('/api/webhook/steadfast', (req, res) => {
-  const db = getDb();
-  const payload = req.body;
+app.post('/api/webhook/steadfast', async (req, res) => {
+  try {
+    const payload = req.body;
+    console.log('Steadfast Webhook:', JSON.stringify(payload));
 
-  console.log('Steadfast Webhook:', JSON.stringify(payload));
+    if (!payload.consignment_id && !payload.invoice) {
+      return res.status(400).json({ status: 'error', message: 'Missing consignment_id or invoice' });
+    }
 
-  if (!payload.consignment_id && !payload.invoice) {
-    return res.status(400).json({ status: 'error', message: 'Missing consignment_id or invoice' });
-  }
+    let order;
+    if (payload.consignment_id) {
+      const r = await pool.query('SELECT * FROM orders WHERE consignment_id = $1', [String(payload.consignment_id)]);
+      order = r.rows[0];
+    }
+    if (!order && payload.invoice) {
+      const r = await pool.query('SELECT * FROM orders WHERE order_number = $1', [payload.invoice]);
+      order = r.rows[0];
+    }
 
-  let order;
-  if (payload.consignment_id) {
-    order = db.prepare('SELECT * FROM orders WHERE consignment_id = ?').get(String(payload.consignment_id));
-  }
-  if (!order && payload.invoice) {
-    order = db.prepare('SELECT * FROM orders WHERE order_number = ?').get(payload.invoice);
-  }
+    if (!order) {
+      return res.status(404).json({ status: 'error', message: 'Order not found' });
+    }
 
-  if (!order) {
-    return res.status(404).json({ status: 'error', message: 'Order not found' });
-  }
+    if (payload.notification_type === 'delivery_status' && payload.status) {
+      const statusLower = payload.status.toLowerCase();
+      await handleCourierStatusUpdate(order, statusLower, payload.delivery_charge, payload.tracking_message);
+    } else if (payload.notification_type === 'tracking_update') {
+      await pool.query('UPDATE orders SET courier_message = $1, updated_at = NOW() WHERE id = $2', [payload.tracking_message || '', order.id]);
+    }
 
-  if (payload.notification_type === 'delivery_status' && payload.status) {
-    const statusLower = payload.status.toLowerCase();
-    handleCourierStatusUpdate(db, order, statusLower, payload.delivery_charge, payload.tracking_message);
-  } else if (payload.notification_type === 'tracking_update') {
-    db.prepare('UPDATE orders SET courier_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(payload.tracking_message || '', order.id);
-  }
-
-  res.json({ status: 'success', message: 'Webhook received successfully.' });
+    res.json({ status: 'success', message: 'Webhook received successfully.' });
+  } catch(e) { console.error(e); res.status(500).json({ status: 'error', message: 'Server error' }); }
 });
 
 // ===== ADMIN PRODUCTS =====
 
-app.get('/api/admin/products', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { search, category, page = 1, limit = 25 } = req.query;
-  let sql = 'SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE 1=1';
-  const params = [];
+app.get('/api/admin/products', requireAdmin, async (req, res) => {
+  try {
+    const { search, category, page = 1, limit = 25 } = req.query;
+    let sql = 'SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
 
-  if (search) {
-    sql += ' AND (p.name LIKE ? OR p.name_bn LIKE ? OR p.sku LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
-  }
-  if (category) { sql += ' AND p.category_id = ?'; params.push(Number(category)); }
+    if (search) {
+      sql += ` AND (p.name ILIKE $${paramIndex} OR p.name_bn ILIKE $${paramIndex + 1} OR p.sku ILIKE $${paramIndex + 2})`;
+      const s = `%${search}%`;
+      params.push(s, s, s);
+      paramIndex += 3;
+    }
+    if (category) { sql += ` AND p.category_id = $${paramIndex++}`; params.push(Number(category)); }
 
-  const countSql = sql.replace('SELECT p.*, c.name as category_name', 'SELECT COUNT(*) as total');
-  const total = db.prepare(countSql).get(...params).total;
+    const countSql = sql.replace('SELECT p.*, c.name as category_name', 'SELECT COUNT(*) as total');
+    const total = parseInt((await pool.query(countSql, params)).rows[0].total);
 
-  sql += ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
-  const offset = (Number(page) - 1) * Number(limit);
-  params.push(Number(limit), offset);
+    sql += ` ORDER BY p.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    const offset = (Number(page) - 1) * Number(limit);
+    params.push(Number(limit), offset);
 
-  const products = db.prepare(sql).all(...params);
-  res.json({ products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    const result = await pool.query(sql, params);
+    res.json({ products: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/products', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { name, name_bn, description, description_bn, price, sale_price, cost_price, sku, category_id, stock, low_stock_alert, image, tags, is_active, is_featured } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name required' });
+app.post('/api/admin/products', requireAdmin, async (req, res) => {
+  try {
+    const { name, name_bn, description, description_bn, price, sale_price, cost_price, sku, category_id, stock, low_stock_alert, image, tags, is_active, is_featured } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
 
-  const slug = (name_bn || name).toLowerCase().replace(/[^a-z0-9ঀ-৿]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
+    const slug = (name_bn || name).toLowerCase().replace(/[^a-z0-9ঀ-৿]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
 
-  const result = db.prepare(`INSERT INTO products (name, name_bn, slug, description, description_bn, price, sale_price, cost_price, sku, category_id, stock, low_stock_alert, image, tags, is_active, is_featured)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(name, name_bn || '', slug, description || '', description_bn || '', price, sale_price || null, cost_price || null, sku || null, category_id || null, stock || 0, low_stock_alert || 5, image || '', tags || '', is_active !== undefined ? is_active : 1, is_featured || 0);
+    const result = await pool.query(`INSERT INTO products (name, name_bn, slug, description, description_bn, price, sale_price, cost_price, sku, category_id, stock, low_stock_alert, image, tags, is_active, is_featured)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
+      [name, name_bn || '', slug, description || '', description_bn || '', price, sale_price || null, cost_price || null, sku || null, category_id || null, stock || 0, low_stock_alert || 5, image || '', tags || '', is_active !== undefined ? is_active : 1, is_featured || 0]);
 
-  res.json({ success: true, id: result.lastInsertRowid });
+    res.json({ success: true, id: result.rows[0].id });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/products/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const fields = req.body;
-  const allowed = ['name', 'name_bn', 'description', 'description_bn', 'price', 'sale_price', 'cost_price', 'sku', 'category_id', 'stock', 'low_stock_alert', 'image', 'tags', 'is_active', 'is_featured'];
-  const sets = [];
-  const vals = [];
-  for (const key of allowed) {
-    if (fields[key] !== undefined) { sets.push(`${key} = ?`); vals.push(fields[key]); }
-  }
-  if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
-  sets.push('updated_at = CURRENT_TIMESTAMP');
-  vals.push(req.params.id);
-  db.prepare(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  res.json({ success: true });
+app.put('/api/admin/products/:id', requireAdmin, async (req, res) => {
+  try {
+    const fields = req.body;
+    const allowed = ['name', 'name_bn', 'description', 'description_bn', 'price', 'sale_price', 'cost_price', 'sku', 'category_id', 'stock', 'low_stock_alert', 'image', 'tags', 'is_active', 'is_featured'];
+    const sets = [];
+    const vals = [];
+    let paramIndex = 1;
+    for (const key of allowed) {
+      if (fields[key] !== undefined) { sets.push(`${key} = $${paramIndex++}`); vals.push(fields[key]); }
+    }
+    if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    sets.push('updated_at = NOW()');
+    vals.push(req.params.id);
+    await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = $${paramIndex}`, vals);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/products/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/products/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM products WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN CATEGORIES =====
 
-app.get('/api/admin/categories', requireAdmin, (req, res) => {
-  const db = getDb();
-  const cats = db.prepare('SELECT * FROM categories ORDER BY sort_order ASC').all();
-  res.json(cats);
+app.get('/api/admin/categories', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM categories ORDER BY sort_order ASC');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/categories', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { name, name_bn, description, parent_id } = req.body;
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const result = db.prepare('INSERT INTO categories (name, name_bn, slug, description, parent_id) VALUES (?, ?, ?, ?, ?)').run(name, name_bn || '', slug, description || '', parent_id || null);
-  res.json({ success: true, id: result.lastInsertRowid });
+app.post('/api/admin/categories', requireAdmin, async (req, res) => {
+  try {
+    const { name, name_bn, description, parent_id } = req.body;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const result = await pool.query('INSERT INTO categories (name, name_bn, slug, description, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [name, name_bn || '', slug, description || '', parent_id || null]);
+    res.json({ success: true, id: result.rows[0].id });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/categories/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { name, name_bn, description, is_active, sort_order } = req.body;
-  db.prepare('UPDATE categories SET name = COALESCE(?, name), name_bn = COALESCE(?, name_bn), description = COALESCE(?, description), is_active = COALESCE(?, is_active), sort_order = COALESCE(?, sort_order) WHERE id = ?')
-    .run(name || null, name_bn || null, description || null, is_active !== undefined ? is_active : null, sort_order !== undefined ? sort_order : null, req.params.id);
-  res.json({ success: true });
+app.put('/api/admin/categories/:id', requireAdmin, async (req, res) => {
+  try {
+    const { name, name_bn, description, is_active, sort_order } = req.body;
+    await pool.query('UPDATE categories SET name = COALESCE($1, name), name_bn = COALESCE($2, name_bn), description = COALESCE($3, description), is_active = COALESCE($4, is_active), sort_order = COALESCE($5, sort_order) WHERE id = $6',
+      [name || null, name_bn || null, description || null, is_active !== undefined ? is_active : null, sort_order !== undefined ? sort_order : null, req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/categories/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/categories/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM categories WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN CUSTOMERS =====
 
-app.get('/api/admin/customers', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { search, page = 1, limit = 25 } = req.query;
-  let sql = 'SELECT * FROM customers WHERE 1=1';
-  const params = [];
-  if (search) {
-    sql += ' AND (name LIKE ? OR phone LIKE ? OR address LIKE ?)';
-    const s = `%${search}%`;
-    params.push(s, s, s);
-  }
-  const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
-  const total = db.prepare(countSql).get(...params).total;
-  sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-  params.push(Number(limit), (Number(page) - 1) * Number(limit));
-  const customers = db.prepare(sql).all(...params);
-  res.json({ customers, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+app.get('/api/admin/customers', requireAdmin, async (req, res) => {
+  try {
+    const { search, page = 1, limit = 25 } = req.query;
+    let sql = 'SELECT * FROM customers WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+    if (search) {
+      sql += ` AND (name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex + 1} OR address ILIKE $${paramIndex + 2})`;
+      const s = `%${search}%`;
+      params.push(s, s, s);
+      paramIndex += 3;
+    }
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+    const total = parseInt((await pool.query(countSql, params)).rows[0].total);
+    sql += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(Number(limit), (Number(page) - 1) * Number(limit));
+    const result = await pool.query(sql, params);
+    res.json({ customers: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/admin/customers/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
-  if (!customer) return res.status(404).json({ error: 'Not found' });
-  const orders = db.prepare('SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC').all(customer.id);
-  res.json({ customer, orders });
+app.get('/api/admin/customers/:id', requireAdmin, async (req, res) => {
+  try {
+    const custResult = await pool.query('SELECT * FROM customers WHERE id = $1', [req.params.id]);
+    if (custResult.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const customer = custResult.rows[0];
+    const orders = (await pool.query('SELECT * FROM orders WHERE customer_id = $1 ORDER BY created_at DESC', [customer.id])).rows;
+    res.json({ customer, orders });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/customers/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { notes, is_blocked } = req.body;
-  db.prepare('UPDATE customers SET notes = COALESCE(?, notes), is_blocked = COALESCE(?, is_blocked), updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(notes !== undefined ? notes : null, is_blocked !== undefined ? is_blocked : null, req.params.id);
-  res.json({ success: true });
+app.put('/api/admin/customers/:id', requireAdmin, async (req, res) => {
+  try {
+    const { notes, is_blocked } = req.body;
+    await pool.query('UPDATE customers SET notes = COALESCE($1, notes), is_blocked = COALESCE($2, is_blocked), updated_at = NOW() WHERE id = $3',
+      [notes !== undefined ? notes : null, is_blocked !== undefined ? is_blocked : null, req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN COUPONS =====
 
-app.get('/api/admin/coupons', requireAdmin, (req, res) => {
-  const db = getDb();
-  const coupons = db.prepare('SELECT * FROM coupons ORDER BY created_at DESC').all();
-  res.json(coupons);
+app.get('/api/admin/coupons', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM coupons ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/coupons', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { code, type, value, min_order, max_uses, expires_at } = req.body;
-  const result = db.prepare('INSERT INTO coupons (code, type, value, min_order, max_uses, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run((code || '').toUpperCase(), type || 'fixed', value, min_order || 0, max_uses || null, expires_at || null);
-  res.json({ success: true, id: result.lastInsertRowid });
+app.post('/api/admin/coupons', requireAdmin, async (req, res) => {
+  try {
+    const { code, type, value, min_order, max_uses, expires_at } = req.body;
+    const result = await pool.query('INSERT INTO coupons (code, type, value, min_order, max_uses, expires_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [(code || '').toUpperCase(), type || 'fixed', value, min_order || 0, max_uses || null, expires_at || null]);
+    res.json({ success: true, id: result.rows[0].id });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/coupons/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM coupons WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/coupons/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM coupons WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN EXPENSES =====
 
-app.get('/api/admin/expenses', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { month } = req.query;
-  let sql = 'SELECT * FROM expenses';
-  const params = [];
-  if (month) { sql += ' WHERE date LIKE ?'; params.push(month + '%'); }
-  sql += ' ORDER BY date DESC';
-  const expenses = db.prepare(sql).all(...params);
-  const total = db.prepare('SELECT COALESCE(SUM(amount),0) as total FROM expenses' + (month ? ' WHERE date LIKE ?' : '')).get(...params).total;
-  res.json({ expenses, total });
+app.get('/api/admin/expenses', requireAdmin, async (req, res) => {
+  try {
+    const { month } = req.query;
+    let sql = 'SELECT * FROM expenses';
+    const params = [];
+    if (month) { sql += ' WHERE date LIKE $1'; params.push(month + '%'); }
+    sql += ' ORDER BY date DESC';
+    const result = await pool.query(sql, params);
+
+    let totalSql = 'SELECT COALESCE(SUM(amount),0) as total FROM expenses';
+    if (month) totalSql += ' WHERE date LIKE $1';
+    const totalResult = await pool.query(totalSql, month ? [month + '%'] : []);
+
+    res.json({ expenses: result.rows, total: parseFloat(totalResult.rows[0].total) });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/expenses', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { category, amount, description, date } = req.body;
-  const result = db.prepare('INSERT INTO expenses (category, amount, description, date) VALUES (?, ?, ?, ?)').run(category, amount, description || '', date || new Date().toISOString().split('T')[0]);
-  res.json({ success: true, id: result.lastInsertRowid });
+app.post('/api/admin/expenses', requireAdmin, async (req, res) => {
+  try {
+    const { category, amount, description, date } = req.body;
+    const result = await pool.query('INSERT INTO expenses (category, amount, description, date) VALUES ($1, $2, $3, $4) RETURNING id',
+      [category, amount, description || '', date || new Date().toISOString().split('T')[0]]);
+    res.json({ success: true, id: result.rows[0].id });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/expenses/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/expenses/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM expenses WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN SETTINGS =====
 
-app.get('/api/admin/settings', requireAdmin, (req, res) => {
-  res.json(getSettings());
+app.get('/api/admin/settings', requireAdmin, async (req, res) => {
+  try {
+    res.json(await getSettings());
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.put('/api/admin/settings', requireAdmin, (req, res) => {
-  const db = getDb();
-  const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-  for (const [key, value] of Object.entries(req.body)) {
-    upsert.run(key, String(value));
-  }
-  res.json({ success: true });
+app.put('/api/admin/settings', requireAdmin, async (req, res) => {
+  try {
+    for (const [key, value] of Object.entries(req.body)) {
+      await pool.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [key, String(value)]);
+    }
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN REPORTS =====
 
-app.get('/api/admin/reports/sales', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { from, to, group_by = 'day' } = req.query;
-  let dateFormat = '%Y-%m-%d';
-  if (group_by === 'month') dateFormat = '%Y-%m';
-  if (group_by === 'year') dateFormat = '%Y';
+app.get('/api/admin/reports/sales', requireAdmin, async (req, res) => {
+  try {
+    const { from, to, group_by = 'day' } = req.query;
+    let dateFormat = 'YYYY-MM-DD';
+    if (group_by === 'month') dateFormat = 'YYYY-MM';
+    if (group_by === 'year') dateFormat = 'YYYY';
 
-  let sql = `SELECT strftime('${dateFormat}', created_at) as period, COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue, COALESCE(SUM(CASE WHEN status='delivered' THEN total_amount ELSE 0 END),0) as delivered_revenue FROM orders WHERE status != 'cancelled'`;
-  const params = [];
-  if (from) { sql += ' AND DATE(created_at) >= ?'; params.push(from); }
-  if (to) { sql += ' AND DATE(created_at) <= ?'; params.push(to); }
-  sql += ` GROUP BY period ORDER BY period DESC`;
+    let sql = `SELECT TO_CHAR(created_at, '${dateFormat}') as period, COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue, COALESCE(SUM(CASE WHEN status='delivered' THEN total_amount ELSE 0 END),0) as delivered_revenue FROM orders WHERE status != 'cancelled'`;
+    const params = [];
+    let paramIndex = 1;
+    if (from) { sql += ` AND DATE(created_at) >= $${paramIndex++}`; params.push(from); }
+    if (to) { sql += ` AND DATE(created_at) <= $${paramIndex++}`; params.push(to); }
+    sql += ` GROUP BY period ORDER BY period DESC`;
 
-  const data = db.prepare(sql).all(...params);
-  res.json(data);
+    const result = await pool.query(sql, params);
+    res.json(result.rows);
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
-app.get('/api/admin/reports/products', requireAdmin, (req, res) => {
-  const db = getDb();
-  const topProducts = db.prepare(`SELECT oi.product_name, SUM(oi.quantity) as total_sold, SUM(oi.total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status != 'cancelled' GROUP BY oi.product_id ORDER BY total_sold DESC LIMIT 20`).all();
-  res.json(topProducts);
+app.get('/api/admin/reports/products', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT oi.product_name, SUM(oi.quantity) as total_sold, SUM(oi.total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status != 'cancelled' GROUP BY oi.product_name ORDER BY total_sold DESC LIMIT 20`);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== FILE UPLOAD =====
@@ -1014,166 +1090,419 @@ app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) =
 
 // ===== FRAUD PROTECTION ADMIN API =====
 
-app.get('/api/admin/fraud/dashboard', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { from, to } = req.query;
-  const today = new Date().toISOString().split('T')[0];
-  const dateFrom = from || today;
-  const dateTo = to || today;
+app.get('/api/admin/fraud/dashboard', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const today = new Date().toISOString().split('T')[0];
+    const dateFrom = from || today;
+    const dateTo = to || today;
 
-  const total = db.prepare('SELECT COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ?').get(dateFrom, dateTo).c;
-  const byReason = db.prepare('SELECT reason, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? GROUP BY reason').all(dateFrom, dateTo);
-  const recent = db.prepare('SELECT * FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? ORDER BY created_at DESC LIMIT 20').all(dateFrom, dateTo);
-  const daily = db.prepare("SELECT DATE(created_at) as day, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) >= DATE('now', '-7 days') GROUP BY day ORDER BY day").all();
-  const topIPs = db.prepare('SELECT ip, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? AND ip != \'\' GROUP BY ip ORDER BY c DESC LIMIT 5').all(dateFrom, dateTo);
-  const topPhones = db.prepare('SELECT phone, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN ? AND ? AND phone != \'\' GROUP BY phone ORDER BY c DESC LIMIT 5').all(dateFrom, dateTo);
-  const totalBlocked = db.prepare('SELECT COUNT(*) as c FROM blocked_entries').get().c;
+    const total = parseInt((await pool.query('SELECT COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN $1 AND $2', [dateFrom, dateTo])).rows[0].c);
+    const byReason = (await pool.query('SELECT reason, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY reason', [dateFrom, dateTo])).rows;
+    const recent = (await pool.query('SELECT * FROM block_attempts WHERE DATE(created_at) BETWEEN $1 AND $2 ORDER BY created_at DESC LIMIT 20', [dateFrom, dateTo])).rows;
+    const daily = (await pool.query("SELECT DATE(created_at)::text as day, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) >= CURRENT_DATE - INTERVAL '7 days' GROUP BY DATE(created_at) ORDER BY DATE(created_at)")).rows;
+    const topIPs = (await pool.query("SELECT ip, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN $1 AND $2 AND ip != '' GROUP BY ip ORDER BY c DESC LIMIT 5", [dateFrom, dateTo])).rows;
+    const topPhones = (await pool.query("SELECT phone, COUNT(*) as c FROM block_attempts WHERE DATE(created_at) BETWEEN $1 AND $2 AND phone != '' GROUP BY phone ORDER BY c DESC LIMIT 5", [dateFrom, dateTo])).rows;
+    const totalBlocked = parseInt((await pool.query('SELECT COUNT(*) as c FROM blocked_entries')).rows[0].c);
 
-  res.json({ total, byReason, recent, daily, topIPs, topPhones, totalBlocked });
+    res.json({ total, byReason, recent, daily, topIPs, topPhones, totalBlocked });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // Blocked entries CRUD
-app.get('/api/admin/fraud/blocked', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { page = 1, type } = req.query;
-  let sql = 'SELECT * FROM blocked_entries WHERE 1=1';
-  const params = [];
-  if (type) { sql += ' AND type = ?'; params.push(type); }
-  sql += ' ORDER BY created_at DESC LIMIT 25 OFFSET ?';
-  params.push((Number(page) - 1) * 25);
-  const entries = db.prepare(sql).all(...params);
-  const total = db.prepare('SELECT COUNT(*) as c FROM blocked_entries').get().c;
-  res.json({ entries, total, page: Number(page), pages: Math.ceil(total / 25) });
+app.get('/api/admin/fraud/blocked', requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, type } = req.query;
+    let sql = 'SELECT * FROM blocked_entries WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+    if (type) { sql += ` AND type = $${paramIndex++}`; params.push(type); }
+    sql += ` ORDER BY created_at DESC LIMIT 25 OFFSET $${paramIndex++}`;
+    params.push((Number(page) - 1) * 25);
+    const result = await pool.query(sql, params);
+    const total = parseInt((await pool.query('SELECT COUNT(*) as c FROM blocked_entries')).rows[0].c);
+    res.json({ entries: result.rows, total, page: Number(page), pages: Math.ceil(total / 25) });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/admin/fraud/blocked', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { type, value, reason, duration_hours } = req.body;
-  if (!type || !value) return res.status(400).json({ error: 'Type and value required' });
-  const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
-  const existing = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get(type, value);
-  if (existing) return res.status(400).json({ error: 'Already blocked' });
-  db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run(type, value, reason || '', duration_hours || null, expires);
-  res.json({ success: true });
+app.post('/api/admin/fraud/blocked', requireAdmin, async (req, res) => {
+  try {
+    const { type, value, reason, duration_hours } = req.body;
+    if (!type || !value) return res.status(400).json({ error: 'Type and value required' });
+    const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
+    const existing = await pool.query('SELECT id FROM blocked_entries WHERE type = $1 AND value = $2', [type, value]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'Already blocked' });
+    await pool.query('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES ($1, $2, $3, $4, $5)', [type, value, reason || '', duration_hours || null, expires]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/fraud/blocked/:id', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM blocked_entries WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+app.delete('/api/admin/fraud/blocked/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM blocked_entries WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // Block attempts log
-app.get('/api/admin/fraud/attempts', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { page = 1, reason } = req.query;
-  let sql = 'SELECT * FROM block_attempts WHERE 1=1';
-  const params = [];
-  if (reason) { sql += ' AND reason = ?'; params.push(reason); }
-  const total = db.prepare(sql.replace('SELECT *', 'SELECT COUNT(*) as c')).get(...params).c;
-  sql += ' ORDER BY created_at DESC LIMIT 25 OFFSET ?';
-  params.push((Number(page) - 1) * 25);
-  const attempts = db.prepare(sql).all(...params);
-  res.json({ attempts, total, page: Number(page), pages: Math.ceil(total / 25) });
+app.get('/api/admin/fraud/attempts', requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, reason } = req.query;
+    let sql = 'SELECT * FROM block_attempts WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+    if (reason) { sql += ` AND reason = $${paramIndex++}`; params.push(reason); }
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as c');
+    const total = parseInt((await pool.query(countSql, params)).rows[0].c);
+    sql += ` ORDER BY created_at DESC LIMIT 25 OFFSET $${paramIndex++}`;
+    params.push((Number(page) - 1) * 25);
+    const result = await pool.query(sql, params);
+    res.json({ attempts: result.rows, total, page: Number(page), pages: Math.ceil(total / 25) });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.delete('/api/admin/fraud/attempts/clear', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM block_attempts').run();
-  res.json({ success: true });
+app.delete('/api/admin/fraud/attempts/clear', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM block_attempts');
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // Quick block from order
-app.post('/api/admin/fraud/block-from-order/:orderId', requireAdmin, (req, res) => {
-  const db = getDb();
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.orderId);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  const { block_phone, block_ip, reason, duration_hours } = req.body;
-  const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
-  let blocked = 0;
-  if (block_phone && order.phone) {
-    const exists = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get('phone', order.phone);
-    if (!exists) { db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run('phone', order.phone, reason || 'Blocked from order', duration_hours || null, expires); blocked++; }
-  }
-  if (block_ip && order.ip_address) {
-    const exists = db.prepare('SELECT id FROM blocked_entries WHERE type = ? AND value = ?').get('ip', order.ip_address);
-    if (!exists) { db.prepare('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES (?, ?, ?, ?, ?)').run('ip', order.ip_address, reason || 'Blocked from order', duration_hours || null, expires); blocked++; }
-  }
-  res.json({ success: true, blocked });
+app.post('/api/admin/fraud/block-from-order/:orderId', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.orderId]);
+    if (orderResult.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+    const order = orderResult.rows[0];
+    const { block_phone, block_ip, reason, duration_hours } = req.body;
+    const expires = duration_hours ? new Date(Date.now() + Number(duration_hours) * 3600000).toISOString() : null;
+    let blocked = 0;
+    if (block_phone && order.phone) {
+      const exists = await pool.query('SELECT id FROM blocked_entries WHERE type = $1 AND value = $2', ['phone', order.phone]);
+      if (exists.rows.length === 0) {
+        await pool.query('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES ($1, $2, $3, $4, $5)', ['phone', order.phone, reason || 'Blocked from order', duration_hours || null, expires]);
+        blocked++;
+      }
+    }
+    if (block_ip && order.ip_address) {
+      const exists = await pool.query('SELECT id FROM blocked_entries WHERE type = $1 AND value = $2', ['ip', order.ip_address]);
+      if (exists.rows.length === 0) {
+        await pool.query('INSERT INTO blocked_entries (type, value, reason, duration_hours, expires_at) VALUES ($1, $2, $3, $4, $5)', ['ip', order.ip_address, reason || 'Blocked from order', duration_hours || null, expires]);
+        blocked++;
+      }
+    }
+    res.json({ success: true, blocked });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // OTP endpoints (public)
-app.post('/api/otp/send', (req, res) => {
-  const db = getDb();
-  const settings = getSettings();
-  if (settings.otp_enabled !== '1') return res.status(400).json({ error: 'OTP not enabled' });
+app.post('/api/otp/send', async (req, res) => {
+  try {
+    const settings = await getSettings();
+    if (settings.otp_enabled !== '1') return res.status(400).json({ error: 'OTP not enabled' });
 
-  const { phone } = req.body;
-  const phoneClean = (phone || '').replace(/[^0-9]/g, '');
-  if (!phoneClean) return res.status(400).json({ error: 'Phone required' });
+    const { phone } = req.body;
+    const phoneClean = (phone || '').replace(/[^0-9]/g, '');
+    if (!phoneClean) return res.status(400).json({ error: 'Phone required' });
 
-  // Rate limit
-  const maxPerHour = Number(settings.otp_rate_limit_per_hour) || 5;
-  const hourAgo = new Date(Date.now() - 3600000).toISOString();
-  const recentOTPs = db.prepare('SELECT COUNT(*) as c FROM otp_sessions WHERE phone = ? AND created_at > ?').get(phoneClean, hourAgo).c;
-  if (recentOTPs >= maxPerHour) return res.status(429).json({ error: 'Too many OTP requests. Try later.' });
+    const maxPerHour = Number(settings.otp_rate_limit_per_hour) || 5;
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    const recentOTPs = parseInt((await pool.query('SELECT COUNT(*) as c FROM otp_sessions WHERE phone = $1 AND created_at > $2', [phoneClean, hourAgo])).rows[0].c);
+    if (recentOTPs >= maxPerHour) return res.status(429).json({ error: 'Too many OTP requests. Try later.' });
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const expiryMin = Number(settings.otp_expiry_minutes) || 5;
-  const expiresAt = new Date(Date.now() + expiryMin * 60000).toISOString();
-  const maxAttempts = Number(settings.otp_max_attempts) || 5;
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiryMin = Number(settings.otp_expiry_minutes) || 5;
+    const expiresAt = new Date(Date.now() + expiryMin * 60000).toISOString();
+    const maxAttempts = Number(settings.otp_max_attempts) || 5;
 
-  db.prepare('INSERT INTO otp_sessions (phone, code, max_attempts, expires_at) VALUES (?, ?, ?, ?)').run(phoneClean, code, maxAttempts, expiresAt);
+    await pool.query('INSERT INTO otp_sessions (phone, code, max_attempts, expires_at) VALUES ($1, $2, $3, $4)', [phoneClean, code, maxAttempts, expiresAt]);
 
-  // TODO: Send SMS via provider when configured
-  console.log(`OTP for ${phoneClean}: ${code}`);
+    console.log(`OTP for ${phoneClean}: ${code}`);
 
-  res.json({ success: true, message: 'OTP sent', expires_in: expiryMin * 60 });
+    res.json({ success: true, message: 'OTP sent', expires_in: expiryMin * 60 });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
-app.post('/api/otp/verify', (req, res) => {
-  const db = getDb();
-  const { phone, code } = req.body;
-  const phoneClean = (phone || '').replace(/[^0-9]/g, '');
+app.post('/api/otp/verify', async (req, res) => {
+  try {
+    const { phone, code } = req.body;
+    const phoneClean = (phone || '').replace(/[^0-9]/g, '');
 
-  const session = db.prepare('SELECT * FROM otp_sessions WHERE phone = ? AND verified = 0 ORDER BY created_at DESC LIMIT 1').get(phoneClean);
-  if (!session) return res.status(400).json({ error: 'No OTP session found' });
-  if (new Date(session.expires_at) < new Date()) return res.status(400).json({ error: 'OTP expired' });
-  if (session.attempts >= session.max_attempts) return res.status(400).json({ error: 'Max attempts exceeded' });
+    const sessionResult = await pool.query('SELECT * FROM otp_sessions WHERE phone = $1 AND verified = 0 ORDER BY created_at DESC LIMIT 1', [phoneClean]);
+    if (sessionResult.rows.length === 0) return res.status(400).json({ error: 'No OTP session found' });
+    const otpSession = sessionResult.rows[0];
+    if (new Date(otpSession.expires_at) < new Date()) return res.status(400).json({ error: 'OTP expired' });
+    if (otpSession.attempts >= otpSession.max_attempts) return res.status(400).json({ error: 'Max attempts exceeded' });
 
-  db.prepare('UPDATE otp_sessions SET attempts = attempts + 1 WHERE id = ?').run(session.id);
+    await pool.query('UPDATE otp_sessions SET attempts = attempts + 1 WHERE id = $1', [otpSession.id]);
 
-  if (session.code !== code) return res.status(400).json({ error: 'Invalid OTP' });
+    if (otpSession.code !== code) return res.status(400).json({ error: 'Invalid OTP' });
 
-  db.prepare('UPDATE otp_sessions SET verified = 1 WHERE id = ?').run(session.id);
-  res.json({ success: true });
+    await pool.query('UPDATE otp_sessions SET verified = 1 WHERE id = $1', [otpSession.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== ADMIN PASSWORD =====
 
-app.put('/api/admin/password', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { current_password, new_password } = req.body;
-  const user = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(req.session.admin.id);
-  if (!bcrypt.compareSync(current_password, user.password)) {
-    return res.status(400).json({ error: 'বর্তমান পাসওয়ার্ড ভুল' });
-  }
-  const hashed = bcrypt.hashSync(new_password, 10);
-  db.prepare('UPDATE admin_users SET password = ? WHERE id = ?').run(hashed, user.id);
-  res.json({ success: true });
+app.put('/api/admin/password', requireAdmin, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    const userResult = await pool.query('SELECT * FROM admin_users WHERE id = $1', [req.session.admin.id]);
+    const user = userResult.rows[0];
+    if (!bcrypt.compareSync(current_password, user.password)) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+    const hashed = bcrypt.hashSync(new_password, 10);
+    await pool.query('UPDATE admin_users SET password = $1 WHERE id = $2', [hashed, user.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ===== LANDING PAGES — PUBLIC =====
+
+app.get('/p/:slug', async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM landing_pages WHERE slug = $1 AND status = 'published' AND deleted_at IS NULL", [req.params.slug]);
+    if (result.rows.length === 0) return res.status(404).send('Page not found');
+    const page = result.rows[0];
+
+    // Increment views
+    await pool.query('UPDATE landing_pages SET views = views + 1 WHERE id = $1', [page.id]);
+
+    // Get settings for pixel
+    const settings = await getSettings();
+
+    // Read the template
+    const templatePath = path.join(__dirname, 'public', 'page-template.html');
+    let template = fs.readFileSync(templatePath, 'utf8');
+
+    // Inject page data
+    template = template.replace('{{PAGE_DATA}}', JSON.stringify(page));
+    template = template.replace('{{SETTINGS_DATA}}', JSON.stringify({
+      shop_name: settings.shop_name_en || settings.shop_name,
+      shop_phone: settings.shop_phone,
+      whatsapp_number: settings.whatsapp_number,
+      messenger_link: settings.messenger_link,
+      facebook_pixel_id: settings.facebook_pixel_id || '',
+      currency: settings.currency || 'TK',
+      shipping_inside_dhaka: settings.shipping_inside_dhaka,
+      shipping_outside_dhaka: settings.shipping_outside_dhaka,
+    }));
+
+    res.send(template);
+  } catch(e) { console.error(e); res.status(500).send('Server error'); }
+});
+
+// ===== LANDING PAGES — ADMIN API =====
+
+app.get('/api/admin/pages', requireAdmin, async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    let sql = 'SELECT id, title, slug, status, views, created_at, updated_at, published_at, deleted_at FROM landing_pages WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+
+    if (status && status !== 'all') {
+      if (status === 'trash') {
+        sql += ' AND deleted_at IS NOT NULL';
+      } else {
+        sql += ` AND status = $${paramIndex++} AND deleted_at IS NULL`;
+        params.push(status);
+      }
+    } else {
+      sql += ' AND deleted_at IS NULL';
+    }
+
+    if (search) {
+      sql += ` AND (title ILIKE $${paramIndex} OR slug ILIKE $${paramIndex + 1})`;
+      const s = `%${search}%`;
+      params.push(s, s);
+      paramIndex += 2;
+    }
+
+    const countSql = sql.replace(/SELECT .+ FROM/, 'SELECT COUNT(*) as total FROM');
+    const total = parseInt((await pool.query(countSql, params)).rows[0].total);
+
+    sql += ` ORDER BY updated_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    const offset = (Number(page) - 1) * Number(limit);
+    params.push(Number(limit), offset);
+
+    const result = await pool.query(sql, params);
+    res.json({ pages: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/pages', requireAdmin, async (req, res) => {
+  try {
+    const { title, slug, status, content, seo_title, seo_description, custom_css } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+
+    const pageSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36).slice(-4);
+
+    // Check slug uniqueness
+    const existing = await pool.query('SELECT id FROM landing_pages WHERE slug = $1', [pageSlug]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'A page with this slug already exists' });
+
+    const publishedAt = status === 'published' ? new Date().toISOString() : null;
+
+    const result = await pool.query(
+      `INSERT INTO landing_pages (title, slug, status, content, seo_title, seo_description, custom_css, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [title, pageSlug, status || 'draft', JSON.stringify(content || { blocks: [] }), seo_title || '', seo_description || '', custom_css || '', publishedAt]
+    );
+
+    // Save initial revision
+    await pool.query('INSERT INTO page_revisions (page_id, content) VALUES ($1, $2)',
+      [result.rows[0].id, JSON.stringify(content || { blocks: [] })]);
+
+    res.json({ success: true, page: result.rows[0] });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/admin/pages/:id', requireAdmin, async (req, res) => {
+  try {
+    const pageResult = await pool.query('SELECT * FROM landing_pages WHERE id = $1', [req.params.id]);
+    if (pageResult.rows.length === 0) return res.status(404).json({ error: 'Page not found' });
+
+    const revisions = (await pool.query('SELECT id, created_at FROM page_revisions WHERE page_id = $1 ORDER BY created_at DESC LIMIT 20', [req.params.id])).rows;
+
+    res.json({ page: pageResult.rows[0], revisions });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.put('/api/admin/pages/:id', requireAdmin, async (req, res) => {
+  try {
+    const { title, slug, content, seo_title, seo_description, custom_css } = req.body;
+
+    // Check slug uniqueness if changed
+    if (slug) {
+      const existing = await pool.query('SELECT id FROM landing_pages WHERE slug = $1 AND id != $2', [slug, req.params.id]);
+      if (existing.rows.length > 0) return res.status(400).json({ error: 'A page with this slug already exists' });
+    }
+
+    const sets = [];
+    const vals = [];
+    let idx = 1;
+
+    if (title !== undefined) { sets.push(`title = $${idx++}`); vals.push(title); }
+    if (slug !== undefined) { sets.push(`slug = $${idx++}`); vals.push(slug); }
+    if (content !== undefined) { sets.push(`content = $${idx++}`); vals.push(JSON.stringify(content)); }
+    if (seo_title !== undefined) { sets.push(`seo_title = $${idx++}`); vals.push(seo_title); }
+    if (seo_description !== undefined) { sets.push(`seo_description = $${idx++}`); vals.push(seo_description); }
+    if (custom_css !== undefined) { sets.push(`custom_css = $${idx++}`); vals.push(custom_css); }
+    sets.push('updated_at = NOW()');
+
+    vals.push(req.params.id);
+    await pool.query(`UPDATE landing_pages SET ${sets.join(', ')} WHERE id = $${idx}`, vals);
+
+    // Auto-save revision if content changed
+    if (content !== undefined) {
+      await pool.query('INSERT INTO page_revisions (page_id, content) VALUES ($1, $2)', [req.params.id, JSON.stringify(content)]);
+
+      // Keep only last N revisions
+      const settings = await getSettings();
+      const maxRevisions = Number(settings.landing_page_max_revisions) || 20;
+      await pool.query(`DELETE FROM page_revisions WHERE page_id = $1 AND id NOT IN (SELECT id FROM page_revisions WHERE page_id = $1 ORDER BY created_at DESC LIMIT $2)`, [req.params.id, maxRevisions]);
+    }
+
+    const updated = await pool.query('SELECT * FROM landing_pages WHERE id = $1', [req.params.id]);
+    res.json({ success: true, page: updated.rows[0] });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.put('/api/admin/pages/:id/status', requireAdmin, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['draft', 'published', 'trash'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+    const updates = ['status = $1', 'updated_at = NOW()'];
+    const params = [status];
+    let idx = 2;
+
+    if (status === 'published') {
+      updates.push(`published_at = NOW()`);
+      updates.push(`deleted_at = NULL`);
+    }
+    if (status === 'trash') {
+      updates.push(`deleted_at = NOW()`);
+    }
+    if (status === 'draft') {
+      updates.push(`deleted_at = NULL`);
+    }
+
+    params.push(req.params.id);
+    await pool.query(`UPDATE landing_pages SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/pages/:id/duplicate', requireAdmin, async (req, res) => {
+  try {
+    const original = await pool.query('SELECT * FROM landing_pages WHERE id = $1', [req.params.id]);
+    if (original.rows.length === 0) return res.status(404).json({ error: 'Page not found' });
+    const p = original.rows[0];
+
+    const newSlug = p.slug + '-copy-' + Date.now().toString(36).slice(-4);
+    const result = await pool.query(
+      `INSERT INTO landing_pages (title, slug, status, content, seo_title, seo_description, custom_css)
+       VALUES ($1, $2, 'draft', $3, $4, $5, $6) RETURNING *`,
+      [p.title + ' (Copy)', newSlug, JSON.stringify(p.content), p.seo_title || '', p.seo_description || '', p.custom_css || '']
+    );
+
+    res.json({ success: true, page: result.rows[0] });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.delete('/api/admin/pages/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM page_revisions WHERE page_id = $1', [req.params.id]);
+    await pool.query('DELETE FROM landing_pages WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/admin/pages/:id/revisions', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM page_revisions WHERE page_id = $1 ORDER BY created_at DESC', [req.params.id]);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/pages/:id/revisions/:revId/restore', requireAdmin, async (req, res) => {
+  try {
+    const rev = await pool.query('SELECT * FROM page_revisions WHERE id = $1 AND page_id = $2', [req.params.revId, req.params.id]);
+    if (rev.rows.length === 0) return res.status(404).json({ error: 'Revision not found' });
+
+    await pool.query('UPDATE landing_pages SET content = $1, updated_at = NOW() WHERE id = $2', [JSON.stringify(rev.rows[0].content), req.params.id]);
+
+    // Save as new revision
+    await pool.query('INSERT INTO page_revisions (page_id, content) VALUES ($1, $2)', [req.params.id, JSON.stringify(rev.rows[0].content)]);
+
+    const updated = await pool.query('SELECT * FROM landing_pages WHERE id = $1', [req.params.id]);
+    res.json({ success: true, page: updated.rows[0] });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ===== ADMIN PRODUCTS LIST FOR PAGE BUILDER =====
+app.get('/api/admin/products/list', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name, name_bn, price, sale_price, image FROM products WHERE is_active = 1 ORDER BY name ASC');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
 // ===== SPA FALLBACKS =====
 
 app.get('/admin/*', (req, res, next) => {
-  // Let actual files (login.html, css/, js/) be served by static middleware
   if (req.path.match(/\.(html|css|js|png|jpg|ico)$/)) return next();
   res.sendFile(path.join(__dirname, 'admin', 'index.html'));
 });
 
 app.listen(PORT, () => {
-  console.log(`\n  রাহনুমা শপ সার্ভার চালু আছে!`);
-  console.log(`  শপ:    http://localhost:${PORT}`);
-  console.log(`  অ্যাডমিন: http://localhost:${PORT}/admin/`);
-  console.log(`  অ্যাডমিন লগিন: admin / admin123\n`);
+  console.log(`\n  Rahnuma Shop server is running!`);
+  console.log(`  Shop:    http://localhost:${PORT}`);
+  console.log(`  Admin:   http://localhost:${PORT}/admin/`);
+  console.log(`  Login:   admin / admin123\n`);
 });
