@@ -1525,13 +1525,20 @@ async function showPageEditor(id) {
       pageData = data.page;
       revisions = data.revisions || [];
       if (typeof pageData.content === 'string') {
-        try { pageData.content = JSON.parse(pageData.content); } catch(e) { pageData.content = { blocks: [] }; }
+        try { pageData.content = JSON.parse(pageData.content); } catch(e) { pageData.content = []; }
       }
-      if (!pageData.content) pageData.content = { blocks: [] };
-    } catch(e) { toast('Failed to load page', 'error'); return; }
+      if (!pageData.content) pageData.content = [];
+    } catch(e) { toast('Failed to load page: ' + e.message, 'error'); return; }
   }
 
-  currentEditorBlocks = (pageData.content && pageData.content.blocks) ? [...pageData.content.blocks] : [];
+  // content can be an array of blocks directly OR { blocks: [...] }
+  let blocks = [];
+  if (Array.isArray(pageData.content)) {
+    blocks = pageData.content;
+  } else if (pageData.content && Array.isArray(pageData.content.blocks)) {
+    blocks = pageData.content.blocks;
+  }
+  currentEditorBlocks = [...blocks];
   currentEditingPageId = id || null;
 
   const modal = document.createElement('div');
@@ -1722,7 +1729,7 @@ async function saveLandingPage(id) {
   const body = {
     title,
     slug: slug || generateSlug(title),
-    content: { blocks: currentEditorBlocks },
+    content: currentEditorBlocks,
     seo_title,
     seo_description,
     custom_css

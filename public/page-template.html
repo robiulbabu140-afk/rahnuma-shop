@@ -143,10 +143,12 @@ document.addEventListener('DOMContentLoaded', function() {
 function renderPage() {
   const wrapper = document.getElementById('pageWrapper');
   let content = typeof PAGE_DATA.content === 'string' ? JSON.parse(PAGE_DATA.content) : PAGE_DATA.content;
-  if (!content || !content.blocks) { wrapper.innerHTML = '<p style="text-align:center;padding:60px;color:#999">This page has no content.</p>'; return; }
+  // content can be array directly or { blocks: [...] }
+  let blocks = Array.isArray(content) ? content : (content && content.blocks ? content.blocks : []);
+  if (!blocks || blocks.length === 0) { wrapper.innerHTML = '<p style="text-align:center;padding:60px;color:#999">This page has no content.</p>'; return; }
 
   let html = '';
-  content.blocks.forEach(function(block, i) {
+  blocks.forEach(function(block, i) {
     html += renderBlock(block, i);
   });
 
