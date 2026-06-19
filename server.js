@@ -295,7 +295,7 @@ app.get('/api/products', (req, res) => {
   const countSql = sql.replace('SELECT p.*, c.name as category_name, c.name_bn as category_name_bn', 'SELECT COUNT(*) as total');
   const total = db.prepare(countSql).get(...params).total;
 
-  sql += ' ORDER BY p.is_featured DESC, p.sort_order ASC, p.created_at DESC LIMIT ? OFFSET ?';
+  sql += ' ORDER BY p.is_featured DESC, p.created_at DESC LIMIT ? OFFSET ?';
   const offset = (Number(page) - 1) * Number(limit);
   params.push(Number(limit), offset);
 
