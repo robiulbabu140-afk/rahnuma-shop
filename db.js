@@ -347,6 +347,82 @@ async function initDatabase() {
       }
     }
 
+    // Seed homepage as landing page
+    const pageCount = await client.query('SELECT COUNT(*) as count FROM landing_pages');
+    if (parseInt(pageCount.rows[0].count) === 0) {
+      const homeBlocks = [
+        {
+          type: 'hero',
+          data: {
+            badge: 'সুন্নাহভিত্তিক চিকিৎসা',
+            arabicVerse: 'وَنُنَزِّلُ مِنَ الْقُرْآنِ مَا هُوَ شِفَاءٌ',
+            arabicTrans: 'আমি কুরআনে এমন কিছু নাযিল করি যা রোগের আরোগ্য — সূরা বনী ইসরাঈল: ৮২',
+            title: 'কালো জাদু ও বদনজর থেকে মুক্তি পান কুরআনিক রুকইয়াহয়',
+            subtitle: 'জিন্নর আছর, কালো জাদু, বান মারা, বদনজর, মানসিক চাপ — যেকোনো সমস্যায় ১০০% হালাল রুকইয়াহ পেপার।',
+            stats: [
+              { number: '৩০০০+', label: 'সন্তুষ্ট গ্রাহক' },
+              { number: '⭐ ৪.৯', label: 'গ্রাহক রেটিং' },
+              { number: '১–৯০', label: 'দিনে ফলাফল' }
+            ],
+            ctaText: 'আজই অর্ডার করুন',
+            ctaLink: '#order',
+            trustItems: ['ক্যাশ অন ডেলিভারি', '১০০% হালাল', 'গোপনীয়তা সুরক্ষিত'],
+            bgColor: '#0d2818'
+          }
+        },
+        {
+          type: 'text',
+          data: {
+            title: 'আপনি কি এই সমস্যাগুলোতে ভুগছেন?',
+            content: '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:16px"><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">🪬</div><strong>কালো জাদু / বান</strong><br><small>তাবিজ বা যাদুর প্রভাব থেকে মুক্তি</small></div><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">🧿</div><strong>বদনজর</strong><br><small>হিংসা ও বদনজরের ক্ষতি থেকে সুরক্ষা</small></div><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">👻</div><strong>জিন্নর আছর</strong><br><small>জিন্নর প্রভাব ও আছর থেকে মুক্তি</small></div><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">😰</div><strong>মানসিক চাপ</strong><br><small>ডিপ্রেশন ও উদ্বেগ কমাতে রুকইয়াহ</small></div><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">💑</div><strong>দাম্পত্য সমস্যা</strong><br><small>সম্পর্কে বিচ্ছেদের জাদু থেকে মুক্তি</small></div><div style="border:1.5px solid #e8e0d0;border-radius:12px;padding:20px 14px;text-align:center"><div style="font-size:32px;margin-bottom:10px">🏥</div><strong>শারীরিক সমস্যা</strong><br><small>বদনজরের কারণে রোগ থেকে সুরক্ষা</small></div></div>'
+          }
+        },
+        {
+          type: 'testimonial',
+          data: {
+            items: [
+              { name: 'Afsana Haque', text: 'আলহামদুলিল্লাহ, রুকিয়া পেপার খুব মানসম্মত। আমার প্রত্যাশার চেয়েও ভালো। শেষ হলে অবশ্যই আবার নেবো।', rating: 5 },
+              { name: 'Ashraful Karim', text: 'মনে হয় আগেই যদি পেতাম! রুকিয়া পেপার সত্যিই উপকারী। আলহামদুলিল্লাহ অনেক ভালো ফিল করছি।', rating: 5 },
+              { name: 'Imran Hossain', text: 'রুকিয়া পেপার আলহামদুলিল্লাহ অনেক ভালো কাজ করেছে। শেষ হলে আবার নেবো।', rating: 5 },
+              { name: 'Rahim Uddin', text: 'খুবই আমেজিং সার্ভিস! পণ্যটি পাওয়ার পর থেকে অনেক বেশি নিরাপদ বোধ করছি।', rating: 5 }
+            ]
+          }
+        },
+        {
+          type: 'faq',
+          data: {
+            items: [
+              { question: 'হাদিয়া কত দিতে হবে?', answer: 'যেহেতু কুরআন এবং হাদিসের ব্যাপার, হাদিয়ার ব্যাপারে আমরা কিছু বলব না। আপনি আনসাফ করে আপনার সমস্যার গভীরতা অনুযায়ী ৫০১, ১০০১, ২০০১, ৫০০১ — যা মনে করেন তাই দিন।' },
+              { question: 'কীভাবে রুকইয়াহ করবো?', answer: 'প্যাকেটের সাথে একটি বিস্তারিত ব্যবহার বিধিমালার কিটি দেওয়া হবে। আপনার সমস্যার ধরন অনুযায়ী পেপারে কুরআনি রুকইয়াহ লেখা থাকবে এবং সেভাবে পরিপালন করলেই হবে।' },
+              { question: 'ফলাফল কতদিনে পাওয়া যাবে?', answer: 'কুরআন ও হাদিসের আলোকে এবং আমাদের ব্যক্তিগত অভিজ্ঞতা অনুযায়ী ১ থেকে ৯০ দিনের মধ্যে সমস্যার সমাধান পেতে শুরু করবেন, ইনশাআল্লাহ।' },
+              { question: 'আমার তথ্য কি গোপন থাকবে?', answer: 'সম্পূর্ণ গোপনীয়তা নিশ্চিত করা হয়। আপনার সব তথ্য আমাদের কাছে সুরক্ষিত এবং কখনো তৃতীয় পক্ষের সাথে শেয়ার করা হয় না।' },
+              { question: 'ডেলিভারি চার্জ কত?', answer: 'ঢাকার ভিতরে ৳৬০ এবং ঢাকার বাইরে ৳১২০। পণ্য হাতে পেয়ে টাকা পরিশোধ করতে পারবেন (ক্যাশ অন ডেলিভারি)।' }
+            ]
+          }
+        },
+        {
+          type: 'contact',
+          data: {
+            phone: '01303073353',
+            whatsapp: 'https://wa.me/8801303073353',
+            messenger: ''
+          }
+        }
+      ];
+
+      await client.query(`INSERT INTO landing_pages (title, slug, status, content, seo_title, seo_description, published_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          'রুকইয়াহ পেপার — রাহনুমা শপ',
+          'home',
+          'published',
+          JSON.stringify(homeBlocks),
+          'রুকইয়াহ পেপার — রাহনুমা শপ | সুন্নাহভিত্তিক রুকইয়াহ পণ্য',
+          'কালো জাদু ও বদনজর থেকে মুক্তি পান কুরআনিক রুকইয়াহয়। ১০০% হালাল ও সুন্নাহভিত্তিক। ক্যাশ অন ডেলিভারি।'
+        ]
+      );
+    }
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Database initialization error:', err);
