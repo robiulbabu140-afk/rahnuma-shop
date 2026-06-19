@@ -1,20 +1,33 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://rahnuma_db_user:H0MNH5LK009fuMm7B4SCmSsJc9yWFxdW@dpg-d8qn9uflk1mc73at0ptg-a/rahnuma_db';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://rahnuma_db_user:H0MNH5LK009fuMm7B4SCmSsJc9yWFxdW@dpg-d8qn9uflk1mc73at0ptg-a.oregon-postgres.render.com:5432/rahnuma_db';
 
+const isLocal = DATABASE_URL.includes('localhost') || DATABASE_URL.includes('127.0.0.1');
 const poolConfig = {
   connectionString: DATABASE_URL,
-  ssl: DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 15000,
 };
+if (!isLocal) {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
 
 const pool = new Pool(poolConfig);
 
+pool.on('error', (err) => {
+  console.error('Pool error:', err.message);
+});
+
 async function initDatabase() {
-  console.log('Connecting to database...');
-  console.log('URL prefix:', DATABASE_URL.substring(0, 30) + '...');
-  const client = await pool.connect();
+  console.log('DATABASE_URL:', DATABASE_URL.replace(/:[^:@]+@/, ':***@'));
+  let client;
+  try {
+    client = await pool.connect();
+  } catch(err) {
+    console.error('Cannot connect to database:', err.message);
+    console.error('Server will start but database features will not work.');
+    return;
+  }
   console.log('Connected to PostgreSQL.');
   try {
     await client.query(`

@@ -12,12 +12,22 @@ const { pool, initDatabase } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize database before starting
-initDatabase().then(() => {
-  console.log('Database ready.');
-}).catch(err => {
-  console.error('Database init failed:', err.message);
-});
+// Initialize database, then start server
+async function startServer() {
+  try {
+    await initDatabase();
+    console.log('Database ready.');
+  } catch(err) {
+    console.error('Database init warning:', err.message);
+  }
+  app.listen(PORT, () => {
+    console.log(`\n  Rahnuma Shop server is running!`);
+    console.log(`  Shop:    http://localhost:${PORT}`);
+    console.log(`  Admin:   http://localhost:${PORT}/admin/`);
+    console.log(`  Login:   admin / admin123\n`);
+  });
+}
+startServer();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -1565,9 +1575,4 @@ app.get('/admin/*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'admin', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  Rahnuma Shop server is running!`);
-  console.log(`  Shop:    http://localhost:${PORT}`);
-  console.log(`  Admin:   http://localhost:${PORT}/admin/`);
-  console.log(`  Login:   admin / admin123\n`);
-});
+// Server started via startServer() above
