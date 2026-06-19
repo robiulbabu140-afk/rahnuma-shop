@@ -220,6 +220,21 @@ async function initDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS ad_spends (
+        id SERIAL PRIMARY KEY,
+        date TEXT NOT NULL,
+        platform TEXT DEFAULT 'facebook',
+        spend_usd REAL NOT NULL DEFAULT 0,
+        spend_bdt REAL NOT NULL DEFAULT 0,
+        impressions INT DEFAULT 0,
+        clicks INT DEFAULT 0,
+        purchases INT DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ad_spends_date ON ad_spends(date);
+
       CREATE TABLE IF NOT EXISTS otp_sessions (
         id SERIAL PRIMARY KEY,
         phone TEXT NOT NULL,
@@ -328,7 +343,8 @@ async function initDatabase() {
       'block_message_phone': '01303073353',
       'block_message_whatsapp': 'https://wa.me/8801303073353',
       'block_message_messenger': '',
-      'steadfast_api_key': '',
+      'usd_to_bdt_rate': '122',
+    'steadfast_api_key': '',
       'steadfast_secret_key': '',
       'steadfast_base_url': 'https://portal.packzy.com/api/v1',
       'steadfast_auto_send': '0',

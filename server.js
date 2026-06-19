@@ -1297,6 +1297,103 @@ app.post('/api/otp/verify', async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ===== AD PERFORMANCE =====
+
+app.get('/api/admin/ads/dashboard', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const today = new Date().toISOString().split('T')[0];
+    const dateFrom = from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    const dateTo = to || today;
+    const settings = await getSettings();
+    const rate = parseFloat(settings.usd_to_bdt_rate) || 122;
+
+    const adData = (await pool.query(
+      'SELECT * FROM ad_spends WHERE date BETWEEN $1 AND $2 ORDER BY date DESC', [dateFrom, dateTo]
+    )).rows;
+
+    const totalSpendUSD = adData.reduce((s, a) => s + (parseFloat(a.spend_usd) || 0), 0);
+    const totalSpendBDT = adData.reduce((s, a) => s + (parseFloat(a.spend_bdt) || 0), 0);
+    const totalImpressions = adData.reduce((s, a) => s + (parseInt(a.impressions) || 0), 0);
+    const totalClicks = adData.reduce((s, a) => s + (parseInt(a.clicks) || 0), 0);
+    const totalAdPurchases = adData.reduce((s, a) => s + (parseInt(a.purchases) || 0), 0);
+
+    const revenue = parseFloat((await pool.query(
+      "SELECT COALESCE(SUM(total_amount),0)::float as total FROM orders WHERE DATE(created_at) BETWEEN $1 AND $2 AND status NOT IN ('cancelled','returned')", [dateFrom, dateTo]
+    )).rows[0].total);
+
+    const delivered = parseFloat((await pool.query(
+      "SELECT COALESCE(SUM(total_amount),0)::float as total FROM orders WHERE DATE(created_at) BETWEEN $1 AND $2 AND status = 'delivered'", [dateFrom, dateTo]
+    )).rows[0].total);
+
+    const orders = parseInt((await pool.query(
+      "SELECT COUNT(*)::int as c FROM orders WHERE DATE(created_at) BETWEEN $1 AND $2 AND status NOT IN ('cancelled','returned')", [dateFrom, dateTo]
+    )).rows[0].c);
+
+    const costOfGoods = parseFloat((await pool.query(
+      "SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost_price,0)),0)::float as total FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE DATE(o.created_at) BETWEEN $1 AND $2 AND o.status NOT IN ('cancelled','returned')", [dateFrom, dateTo]
+    )).rows[0].total);
+
+    const otherExpenses = parseFloat((await pool.query(
+      "SELECT COALESCE(SUM(amount),0)::float as total FROM expenses WHERE date BETWEEN $1 AND $2", [dateFrom, dateTo]
+    )).rows[0].total);
+
+    const grossProfit = revenue - costOfGoods;
+    const netProfit = grossProfit - totalSpendBDT - otherExpenses;
+    const roas = totalSpendBDT > 0 ? (revenue / totalSpendBDT).toFixed(2) : 0;
+    const costPerOrder = orders > 0 ? (totalSpendBDT / orders).toFixed(0) : 0;
+
+    res.json({
+      rate,
+      dateFrom, dateTo,
+      adSpends: adData,
+      summary: {
+        totalSpendUSD: totalSpendUSD.toFixed(2),
+        totalSpendBDT: Math.round(totalSpendBDT),
+        totalImpressions, totalClicks, totalAdPurchases,
+        revenue: Math.round(revenue),
+        delivered: Math.round(delivered),
+        orders,
+        costOfGoods: Math.round(costOfGoods),
+        otherExpenses: Math.round(otherExpenses),
+        grossProfit: Math.round(grossProfit),
+        netProfit: Math.round(netProfit),
+        roas,
+        costPerOrder,
+        ctr: totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : 0,
+      }
+    });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.post('/api/admin/ads/spend', requireAdmin, async (req, res) => {
+  try {
+    const { date, spend_usd, impressions, clicks, purchases, notes, platform } = req.body;
+    if (!date || spend_usd === undefined) return res.status(400).json({ error: 'Date and spend required' });
+
+    const settings = await getSettings();
+    const rate = parseFloat(settings.usd_to_bdt_rate) || 122;
+    const spend_bdt = parseFloat(spend_usd) * rate;
+
+    const existing = await pool.query('SELECT id FROM ad_spends WHERE date = $1 AND platform = $2', [date, platform || 'facebook']);
+    if (existing.rows.length > 0) {
+      await pool.query('UPDATE ad_spends SET spend_usd = $1, spend_bdt = $2, impressions = $3, clicks = $4, purchases = $5, notes = $6 WHERE id = $7',
+        [spend_usd, spend_bdt, impressions || 0, clicks || 0, purchases || 0, notes || '', existing.rows[0].id]);
+    } else {
+      await pool.query('INSERT INTO ad_spends (date, platform, spend_usd, spend_bdt, impressions, clicks, purchases, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [date, platform || 'facebook', spend_usd, spend_bdt, impressions || 0, clicks || 0, purchases || 0, notes || '']);
+    }
+    res.json({ success: true });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.delete('/api/admin/ads/spend/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM ad_spends WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
 // ===== ADMIN PASSWORD =====
 
 app.put('/api/admin/password', requireAdmin, async (req, res) => {

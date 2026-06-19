@@ -20,10 +20,10 @@ function loadPage(page) {
   const el = document.querySelector(`.nav-item[data-page="${page}"]`);
   if (el) el.classList.add('active');
 
-  const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', pages:'Landing Pages', fraud:'Fraud Protection', settings:'Settings' };
+  const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', ads:'Ad Performance', pages:'Landing Pages', fraud:'Fraud Protection', settings:'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
-  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, pages: loadPages, fraud: loadFraudPage, settings: loadSettings };
+  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, ads: loadAdsPage, pages: loadPages, fraud: loadFraudPage, settings: loadSettings };
   if (loaders[page]) loaders[page]();
 
   document.getElementById('sidebar').classList.remove('open');
@@ -1785,6 +1785,144 @@ async function restoreRevision(pageId, revId) {
     toast('Revision restored');
     document.querySelector('.admin-modal').remove();
     showPageEditor(pageId);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ===== AD PERFORMANCE =====
+
+async function loadAdsPage() {
+  const c = document.getElementById('pageContent');
+  const today = new Date().toISOString().split('T')[0];
+  const thirtyAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+
+  c.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <label>From:</label><input type="date" id="adDateFrom" value="${thirtyAgo}" onchange="fetchAdsData()">
+        <label>To:</label><input type="date" id="adDateTo" value="${today}" onchange="fetchAdsData()">
+      </div>
+      <button class="btn btn-primary" onclick="showAddAdSpend()">+ Add Daily Ad Spend</button>
+    </div>
+    <div id="adsContent"><p>Loading...</p></div>`;
+  fetchAdsData();
+}
+
+async function fetchAdsData() {
+  const from = document.getElementById('adDateFrom').value;
+  const to = document.getElementById('adDateTo').value;
+  const container = document.getElementById('adsContent');
+
+  try {
+    const d = await api(`/api/admin/ads/dashboard?from=${from}&to=${to}`);
+    const s = d.summary;
+
+    container.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="font-size:15px">USD to BDT Rate</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:24px;font-weight:700;color:var(--green-mid)">1 USD = ৳${d.rate}</span>
+          <button class="btn btn-sm btn-ghost" onclick="changeUsdRate()">Change</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card" style="border-left:4px solid #dc2626"><div class="label">Total Ad Spend (USD)</div><div class="value" style="color:#dc2626">$${s.totalSpendUSD}</div></div>
+      <div class="stat-card" style="border-left:4px solid #dc2626"><div class="label">Total Ad Spend (BDT)</div><div class="value" style="color:#dc2626">৳${s.totalSpendBDT}</div></div>
+      <div class="stat-card" style="border-left:4px solid #3b82f6"><div class="label">Revenue</div><div class="value" style="color:#3b82f6">৳${s.revenue}</div><div class="sub">${s.orders} orders</div></div>
+      <div class="stat-card" style="border-left:4px solid #22c55e"><div class="label">Delivered Revenue</div><div class="value" style="color:#22c55e">৳${s.delivered}</div></div>
+      <div class="stat-card" style="border-left:4px solid #f59e0b"><div class="label">Cost of Goods</div><div class="value">৳${s.costOfGoods}</div></div>
+      <div class="stat-card" style="border-left:4px solid #8b5cf6"><div class="label">Other Expenses</div><div class="value">৳${s.otherExpenses}</div></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card highlight"><div class="label">Gross Profit (Revenue - COGS)</div><div class="value" style="color:${s.grossProfit>=0?'#4ade80':'#fca5a5'}">৳${s.grossProfit}</div></div>
+      <div class="stat-card" style="background:${s.netProfit>=0?'#166534':'#991b1b'};color:#fff"><div class="label" style="color:rgba(255,255,255,0.7)">Net Profit (After Ads + Expenses)</div><div class="value" style="color:${s.netProfit>=0?'#4ade80':'#fca5a5'};font-size:28px">৳${s.netProfit}</div></div>
+      <div class="stat-card"><div class="label">ROAS (Return on Ad Spend)</div><div class="value" style="color:${parseFloat(s.roas)>=2?'#16a34a':'#dc2626'}">${s.roas}x</div><div class="sub">${parseFloat(s.roas)>=2?'Good':'Needs improvement'}</div></div>
+      <div class="stat-card"><div class="label">Cost Per Order</div><div class="value">৳${s.costPerOrder}</div></div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:16px">
+      <div class="table-header"><h2>Daily Ad Spend Log</h2></div>
+      <table><thead><tr><th>Date</th><th>Platform</th><th>Spend (USD)</th><th>Spend (BDT)</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Purchases</th><th>Notes</th><th>Action</th></tr></thead><tbody>
+      ${d.adSpends.length === 0 ? '<tr><td colspan="10" style="text-align:center;color:#999;padding:20px">No ad spend data yet. Click "+ Add Daily Ad Spend" to start tracking.</td></tr>' :
+        d.adSpends.map(a => {
+          const ctr = a.impressions > 0 ? ((a.clicks / a.impressions) * 100).toFixed(2) + '%' : '-';
+          return `<tr>
+            <td><strong>${a.date}</strong></td>
+            <td>${a.platform || 'Facebook'}</td>
+            <td style="color:#dc2626;font-weight:600">$${parseFloat(a.spend_usd).toFixed(2)}</td>
+            <td style="color:#dc2626">৳${Math.round(a.spend_bdt)}</td>
+            <td>${a.impressions || 0}</td>
+            <td>${a.clicks || 0}</td>
+            <td>${ctr}</td>
+            <td>${a.purchases || 0}</td>
+            <td>${a.notes || '-'}</td>
+            <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteAdSpend(${a.id})">✕</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody></table>
+    </div>`;
+  } catch(e) { container.innerHTML = '<p style="color:red">Failed to load: ' + e.message + '</p>'; }
+}
+
+function showAddAdSpend() {
+  const today = new Date().toISOString().split('T')[0];
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:450px">
+    <div class="modal-header"><h2>Add Daily Ad Spend</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+    <form onsubmit="saveAdSpend(event)">
+      <div class="form-group"><label>Date</label><input type="date" id="adDate" value="${today}" required></div>
+      <div class="form-group"><label>Platform</label><select id="adPlatform"><option value="facebook">Facebook</option><option value="instagram">Instagram</option><option value="google">Google</option><option value="tiktok">TikTok</option><option value="other">Other</option></select></div>
+      <div class="form-group"><label>Spend (USD)</label><input type="number" step="0.01" id="adSpendUsd" required placeholder="e.g. 15.50"></div>
+      <div class="form-grid">
+        <div class="form-group"><label>Impressions</label><input type="number" id="adImpressions" value="0"></div>
+        <div class="form-group"><label>Clicks</label><input type="number" id="adClicks" value="0"></div>
+      </div>
+      <div class="form-group"><label>Purchases (from ads)</label><input type="number" id="adPurchases" value="0"></div>
+      <div class="form-group"><label>Notes</label><input id="adNotes" placeholder="Campaign name, ad set, etc."></div>
+      <button type="submit" class="btn btn-primary">Save Ad Spend</button>
+    </form>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveAdSpend(e) {
+  e.preventDefault();
+  try {
+    await api('/api/admin/ads/spend', { method: 'POST', body: JSON.stringify({
+      date: document.getElementById('adDate').value,
+      platform: document.getElementById('adPlatform').value,
+      spend_usd: parseFloat(document.getElementById('adSpendUsd').value),
+      impressions: parseInt(document.getElementById('adImpressions').value) || 0,
+      clicks: parseInt(document.getElementById('adClicks').value) || 0,
+      purchases: parseInt(document.getElementById('adPurchases').value) || 0,
+      notes: document.getElementById('adNotes').value
+    })});
+    document.querySelector('.admin-modal').remove();
+    toast('Ad spend saved');
+    fetchAdsData();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function deleteAdSpend(id) {
+  try {
+    await api('/api/admin/ads/spend/' + id, { method: 'DELETE' });
+    toast('Deleted');
+    fetchAdsData();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function changeUsdRate() {
+  const newRate = prompt('Enter new USD to BDT rate:', '122');
+  if (!newRate) return;
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ usd_to_bdt_rate: newRate }) });
+    toast('Rate updated to ৳' + newRate);
+    fetchAdsData();
   } catch(e) { toast(e.message, 'error'); }
 }
 
