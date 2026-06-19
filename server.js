@@ -1375,15 +1375,16 @@ app.get('/api/admin/pages', requireAdmin, async (req, res) => {
       paramIndex += 2;
     }
 
-    const countSql = sql.replace(/SELECT .+ FROM/, 'SELECT COUNT(*) as total FROM');
-    const total = parseInt((await pool.query(countSql, params)).rows[0].total);
+    const countParams = [...params];
+    const countSql = 'SELECT COUNT(*)::int as total FROM landing_pages WHERE ' + sql.split('WHERE')[1];
+    const total = (await pool.query(countSql, countParams)).rows[0].total;
 
     sql += ` ORDER BY updated_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
     const offset = (Number(page) - 1) * Number(limit);
     params.push(Number(limit), offset);
 
     const result = await pool.query(sql, params);
-    res.json({ pages: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    res.json({ pages: result.rows, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 

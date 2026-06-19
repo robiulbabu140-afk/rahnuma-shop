@@ -1379,7 +1379,7 @@ async function fetchPages() {
     pagHtml += `<span>Page ${pagesPage} / ${totalPages || 1}</span>`;
     pagHtml += `<button ${pagesPage>=totalPages?'disabled':''} onclick="pagesPage++;fetchPages()">Next →</button>`;
     document.getElementById('pagesPagination').innerHTML = pagHtml;
-  } catch(e) { document.getElementById('pagesTable').innerHTML = '<p style="padding:20px;color:red">Failed to load pages</p>'; }
+  } catch(e) { document.getElementById('pagesTable').innerHTML = '<p style="padding:20px;color:red">Failed to load pages: ' + e.message + '</p>'; console.error('Pages error:', e); }
 }
 
 function escapeHtml(str) {
