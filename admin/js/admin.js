@@ -39,8 +39,14 @@ function toast(msg, type) {
 }
 
 async function api(url, opts) {
-  const res = await fetch(url, { headers: {'Content-Type':'application/json'}, ...opts });
-  const data = await res.json();
+  const fetchOpts = { credentials: 'same-origin', ...opts };
+  if (opts && opts.body) {
+    fetchOpts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  }
+  const res = await fetch(url, fetchOpts);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error('Server error: ' + text.substring(0, 100)); }
   if (!res.ok) throw new Error(data.error || 'Error');
   return data;
 }
@@ -48,9 +54,10 @@ async function api(url, opts) {
 // ===== DASHBOARD =====
 async function loadDashboard() {
   const c = document.getElementById('pageContent');
-  c.innerHTML = '<p>Loading...</p>';
+  c.innerHTML = '<p>Loading dashboard...</p>';
   try {
     const d = await api('/api/admin/dashboard');
+    if (!d) { c.innerHTML = '<p style="color:red">No data received</p>'; return; }
     const maxRev = Math.max(...d.last7Days.map(x => x.revenue), 1);
 
     c.innerHTML = `
@@ -99,7 +106,7 @@ async function loadDashboard() {
         </div>
       </div>
     </div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">Failed to load data</p>'; }
+  } catch(e) { c.innerHTML = '<p style="color:red">Failed to load dashboard: ' + e.message + '</p>'; console.error('Dashboard error:', e); }
 }
 
 // ===== ORDERS =====
