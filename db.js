@@ -107,7 +107,12 @@ function initDatabase() {
       payment_method TEXT DEFAULT 'cod',
       payment_status TEXT DEFAULT 'unpaid',
       courier TEXT,
+      consignment_id TEXT,
+      tracking_code TEXT,
       tracking_number TEXT,
+      delivery_charge REAL DEFAULT 0,
+      courier_status TEXT,
+      courier_message TEXT,
       problem_description TEXT,
       notes TEXT,
       ip_address TEXT,
@@ -176,6 +181,18 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
   `);
 
+  // Migrate existing DB — add courier columns if missing
+  const cols = db.prepare("PRAGMA table_info(orders)").all().map(c => c.name);
+  const migrations = [
+    ['consignment_id', 'TEXT'], ['tracking_code', 'TEXT'], ['delivery_charge', 'REAL DEFAULT 0'],
+    ['courier_status', 'TEXT'], ['courier_message', 'TEXT']
+  ];
+  for (const [col, type] of migrations) {
+    if (!cols.includes(col)) {
+      db.exec(`ALTER TABLE orders ADD COLUMN ${col} ${type}`);
+    }
+  }
+
   const adminCount = db.prepare('SELECT COUNT(*) as count FROM admin_users').get();
   if (adminCount.count === 0) {
     const hashedPassword = bcrypt.hashSync('admin123', 10);
@@ -197,6 +214,12 @@ function initDatabase() {
     'bkash_number': '',
     'nagad_enabled': '0',
     'nagad_number': '',
+    'steadfast_api_key': '',
+    'steadfast_secret_key': '',
+    'steadfast_base_url': 'https://portal.packzy.com/api/v1',
+    'steadfast_auto_send': '0',
+    'default_delivery_charge_dhaka': '60',
+    'default_delivery_charge_outside': '120',
     'facebook_pixel_id': '',
     'facebook_access_token': '',
     'facebook_test_event_code': '',

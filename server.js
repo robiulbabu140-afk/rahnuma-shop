@@ -56,6 +56,141 @@ function getSettings() {
   return settings;
 }
 
+// ===== STEADFAST COURIER API =====
+
+function steadfastRequest(method, endpoint, body) {
+  return new Promise((resolve, reject) => {
+    const settings = getSettings();
+    const apiKey = settings.steadfast_api_key;
+    const secretKey = settings.steadfast_secret_key;
+    const baseUrl = settings.steadfast_base_url || 'https://portal.packzy.com/api/v1';
+
+    if (!apiKey || !secretKey) return reject(new Error('Steadfast API credentials not configured'));
+
+    const url = new URL(baseUrl + endpoint);
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: method,
+      headers: {
+        'Api-Key': apiKey,
+        'Secret-Key': secretKey,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch(e) { reject(new Error('Invalid response from Steadfast')); }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function sendOrderToCourier(orderId) {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) throw new Error('Order not found');
+  if (order.consignment_id) throw new Error('Already sent to courier');
+
+  const items = db.prepare('SELECT product_name, quantity FROM order_items WHERE order_id = ?').all(orderId);
+  const itemDesc = items.map(i => `${i.product_name} x${i.quantity}`).join(', ');
+
+  const result = await steadfastRequest('POST', '/create_order', {
+    invoice: order.order_number,
+    recipient_name: order.customer_name,
+    recipient_phone: order.phone,
+    recipient_address: [order.address, order.area, order.city, order.district].filter(Boolean).join(', '),
+    cod_amount: order.payment_method === 'cod' ? order.total_amount : 0,
+    note: order.notes || order.problem_description || '',
+    item_description: itemDesc,
+  });
+
+  if (result.status === 200 && result.consignment) {
+    const c = result.consignment;
+    db.prepare(`UPDATE orders SET
+      courier = 'Steadfast',
+      consignment_id = ?,
+      tracking_code = ?,
+      tracking_number = ?,
+      courier_status = ?,
+      status = 'shipped',
+      shipped_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?`).run(c.consignment_id, c.tracking_code, c.tracking_code, c.status || 'in_review', orderId);
+
+    return { success: true, consignment: c };
+  }
+
+  throw new Error(result.message || 'Steadfast API error');
+}
+
+function handleCourierStatusUpdate(db, order, newStatus, deliveryCharge, trackingMessage) {
+  const statusMap = {
+    'pending': 'shipped',
+    'in_review': 'shipped',
+    'delivered': 'delivered',
+    'partial_delivered': 'delivered',
+    'delivered_approval_pending': 'shipped',
+    'partial_delivered_approval_pending': 'shipped',
+    'cancelled': 'cancelled',
+    'cancelled_approval_pending': 'shipped',
+    'hold': 'shipped',
+    'unknown': 'shipped',
+  };
+
+  const mappedStatus = statusMap[newStatus] || 'shipped';
+  const charge = Number(deliveryCharge) || 0;
+
+  db.prepare(`UPDATE orders SET
+    courier_status = ?,
+    courier_message = ?,
+    delivery_charge = ?,
+    status = ?,
+    updated_at = CURRENT_TIMESTAMP
+    ${mappedStatus === 'delivered' ? ", delivered_at = CURRENT_TIMESTAMP, payment_status = 'paid'" : ''}
+  WHERE id = ?`).run(newStatus, trackingMessage || '', charge, mappedStatus, order.id);
+
+  if (mappedStatus === 'delivered') {
+    // Auto-record delivery charge as expense
+    if (charge > 0) {
+      db.prepare('INSERT INTO expenses (category, amount, description, date) VALUES (?, ?, ?, ?)').run(
+        'কুরিয়ার', charge,
+        `Steadfast চার্জ — ${order.order_number}`,
+        new Date().toISOString().split('T')[0]
+      );
+    }
+    // Update customer total
+    if (order.customer_id) {
+      db.prepare('UPDATE customers SET total_spent = total_spent + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(order.total_amount, order.customer_id);
+    }
+  }
+
+  if (mappedStatus === 'cancelled') {
+    // Restore stock
+    const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
+    const restoreStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+    items.forEach(item => { if (item.product_id) restoreStock.run(item.quantity, item.product_id); });
+
+    // Record delivery charge as loss if charged
+    if (charge > 0) {
+      db.prepare('INSERT INTO expenses (category, amount, description, date) VALUES (?, ?, ?, ?)').run(
+        'কুরিয়ার (বাতিল)', charge,
+        `Steadfast রিটার্ন চার্জ — ${order.order_number}`,
+        new Date().toISOString().split('T')[0]
+      );
+    }
+  }
+
+  console.log(`Order ${order.order_number}: ${newStatus} → ${mappedStatus}`);
+}
+
 // ===== FACEBOOK CONVERSION API =====
 
 function hashSHA256(value) {
@@ -484,11 +619,78 @@ app.put('/api/admin/orders/:id', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+// Send order to Steadfast Courier
+app.post('/api/admin/orders/:id/send-courier', requireAdmin, async (req, res) => {
+  try {
+    const result = await sendOrderToCourier(req.params.id);
+    res.json(result);
+  } catch(e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Check courier status manually
+app.get('/api/admin/orders/:id/courier-status', requireAdmin, async (req, res) => {
+  const db = getDb();
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order || !order.consignment_id) return res.status(400).json({ error: 'No courier data' });
+  try {
+    const result = await steadfastRequest('GET', `/status_by_cid/${order.consignment_id}`);
+    if (result.delivery_status) {
+      db.prepare('UPDATE orders SET courier_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(result.delivery_status, order.id);
+    }
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Check Steadfast balance
+app.get('/api/admin/courier/balance', requireAdmin, async (req, res) => {
+  try {
+    const result = await steadfastRequest('GET', '/get_balance');
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.delete('/api/admin/orders/:id', requireAdmin, (req, res) => {
   const db = getDb();
   db.prepare('DELETE FROM order_items WHERE order_id = ?').run(req.params.id);
   db.prepare('DELETE FROM orders WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+// ===== STEADFAST WEBHOOK =====
+// URL to set in Steadfast: https://your-domain.com/api/webhook/steadfast
+app.post('/api/webhook/steadfast', (req, res) => {
+  const db = getDb();
+  const payload = req.body;
+
+  console.log('Steadfast Webhook:', JSON.stringify(payload));
+
+  if (!payload.consignment_id && !payload.invoice) {
+    return res.status(400).json({ status: 'error', message: 'Missing consignment_id or invoice' });
+  }
+
+  let order;
+  if (payload.consignment_id) {
+    order = db.prepare('SELECT * FROM orders WHERE consignment_id = ?').get(String(payload.consignment_id));
+  }
+  if (!order && payload.invoice) {
+    order = db.prepare('SELECT * FROM orders WHERE order_number = ?').get(payload.invoice);
+  }
+
+  if (!order) {
+    return res.status(404).json({ status: 'error', message: 'Order not found' });
+  }
+
+  if (payload.notification_type === 'delivery_status' && payload.status) {
+    const statusLower = payload.status.toLowerCase();
+    handleCourierStatusUpdate(db, order, statusLower, payload.delivery_charge, payload.tracking_message);
+  } else if (payload.notification_type === 'tracking_update') {
+    db.prepare('UPDATE orders SET courier_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(payload.tracking_message || '', order.id);
+  }
+
+  res.json({ status: 'success', message: 'Webhook received successfully.' });
 });
 
 // ===== ADMIN PRODUCTS =====

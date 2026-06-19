@@ -144,12 +144,14 @@ async function fetchOrders() {
       <td><span class="badge badge-${o.status}">${o.status}</span></td>
       <td>${o.payment_status === 'paid' ? '<span style="color:#16a34a">পরিশোধিত</span>' : '<span style="color:#f59e0b">অপরিশোধিত</span>'}</td>
       <td>${new Date(o.created_at).toLocaleDateString('bn-BD')}</td>
+      <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">বিস্তারিত</button>
+        ${!o.consignment_id && (o.status==='confirmed'||o.status==='processing') ? `<button class="btn btn-sm btn-gold" onclick="sendToCourier(${o.id})">🚀</button>` : ''}
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>অর্ডার</th><th>গ্রাহক</th><th>মোট</th><th>স্ট্যাটাস</th><th>পেমেন্ট</th><th>তারিখ</th><th>অ্যাকশন</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>অর্ডার</th><th>গ্রাহক</th><th>মোট</th><th>স্ট্যাটাস</th><th>পেমেন্ট</th><th>তারিখ</th><th>কুরিয়ার</th><th>অ্যাকশন</th></tr></thead><tbody>${tbody}</tbody></table>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← আগে</button>`;
     pagHtml += `<span>পেজ ${data.page} / ${data.pages || 1}</span>`;
@@ -197,10 +199,23 @@ async function viewOrder(id) {
         </tbody></table>
       </div>
 
+      ${o.consignment_id ? `<div class="detail-box" style="margin-top:16px;background:#ecfeff;border-color:#0ea5e9">
+        <h4 style="color:#0e7490">🚚 কুরিয়ার তথ্য (Steadfast)</h4>
+        <div class="detail-row"><span>Consignment ID:</span><span>${o.consignment_id}</span></div>
+        <div class="detail-row"><span>Tracking Code:</span><span><strong>${o.tracking_code}</strong></span></div>
+        <div class="detail-row"><span>কুরিয়ার স্ট্যাটাস:</span><span><span class="badge badge-${o.courier_status==='delivered'?'delivered':o.courier_status==='cancelled'?'cancelled':'shipped'}">${o.courier_status||'-'}</span></span></div>
+        ${o.delivery_charge ? `<div class="detail-row"><span>ডেলিভারি চার্জ:</span><span>৳${o.delivery_charge}</span></div>` : ''}
+        ${o.courier_message ? `<div class="detail-row"><span>ট্র্যাকিং:</span><span>${o.courier_message}</span></div>` : ''}
+        <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="refreshCourierStatus(${o.id})">🔄 স্ট্যাটাস রিফ্রেশ</button>
+      </div>` : `<div style="margin-top:16px;padding:16px;background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px;text-align:center">
+        <p style="margin-bottom:10px;font-size:14px;color:#92400e">📦 এই অর্ডারটি এখনো কুরিয়ারে পাঠানো হয়নি</p>
+        <button class="btn btn-gold" onclick="sendToCourier(${o.id})">🚀 Steadfast কুরিয়ারে পাঠান</button>
+      </div>`}
+
       <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div class="form-group"><label>স্ট্যাটাস পরিবর্তন</label><select id="orderStatus">${statusOpts}</select></div>
         <div class="form-group"><label>কুরিয়ার</label><input id="orderCourier" value="${o.courier||''}" placeholder="Steadfast, Pathao..."></div>
-        <div class="form-group"><label>ট্র্যাকিং নম্বর</label><input id="orderTracking" value="${o.tracking_number||''}"></div>
+        <div class="form-group"><label>ট্র্যাকিং নম্বর</label><input id="orderTracking" value="${o.tracking_number||o.tracking_code||''}"></div>
       </div>
       <div class="form-group"><label>নোট</label><textarea id="orderNotes" rows="2" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit">${o.notes||''}</textarea></div>
 
@@ -225,6 +240,25 @@ async function updateOrderStatus(id) {
     document.querySelector('.admin-modal').remove();
     toast('অর্ডার আপডেট হয়েছে');
     fetchOrders();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function sendToCourier(orderId) {
+  if (!confirm('এই অর্ডারটি Steadfast কুরিয়ারে পাঠাতে চান?')) return;
+  try {
+    const result = await api('/api/admin/orders/' + orderId + '/send-courier', { method: 'POST' });
+    toast('কুরিয়ারে পাঠানো হয়েছে! Tracking: ' + (result.consignment?.tracking_code || ''));
+    document.querySelector('.admin-modal')?.remove();
+    fetchOrders();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function refreshCourierStatus(orderId) {
+  try {
+    const result = await api('/api/admin/orders/' + orderId + '/courier-status');
+    toast('কুরিয়ার স্ট্যাটাস: ' + (result.delivery_status || 'unknown'));
+    document.querySelector('.admin-modal')?.remove();
+    viewOrder(orderId);
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -674,6 +708,37 @@ async function loadSettings() {
       </div>
 
       <div class="settings-section">
+        <h3>🚚 Steadfast Courier API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Steadfast কুরিয়ার ইন্টিগ্রেশন — অটো অর্ডার পাঠানো, স্ট্যাটাস আপডেট, অ্যাকাউন্টিং।</p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>API Key</label>
+            <input id="sSteadfastKey" value="${s.steadfast_api_key||''}" placeholder="Steadfast API Key">
+            <small style="color:#888">Steadfast Portal → Settings → API</small>
+          </div>
+          <div class="form-group">
+            <label>Secret Key</label>
+            <input id="sSteadfastSecret" type="password" value="${s.steadfast_secret_key||''}" placeholder="Steadfast Secret Key">
+          </div>
+          <div class="form-group">
+            <label>Base URL</label>
+            <input id="sSteadfastUrl" value="${s.steadfast_base_url||'https://portal.packzy.com/api/v1'}">
+          </div>
+        </div>
+        <div style="margin-top:12px"><button type="button" class="btn btn-ghost" onclick="checkCourierBalance()">💰 ব্যালেন্স চেক করুন</button> <span id="courierBalance"></span></div>
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-top:12px;font-size:13px">
+          <strong>ওয়েবহুক URL (Steadfast এ সেট করুন):</strong><br>
+          <code style="background:#e0f2e0;padding:4px 8px;border-radius:4px">${window.location.origin}/api/webhook/steadfast</code>
+          <br><br>
+          <strong>অটোমেশন ফ্লো:</strong><br>
+          ✅ অর্ডার → কুরিয়ারে পাঠান (1-click)<br>
+          ✅ ডেলিভারি হলে → অটো স্ট্যাটাস আপডেট + পেমেন্ট paid<br>
+          ✅ ডেলিভারি চার্জ → অটো খরচে যোগ<br>
+          ✅ বাতিল হলে → অটো স্টক ফেরত + চার্জ খরচে
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3>📊 Facebook Pixel & Conversion API</h3>
         <p style="font-size:13px;color:#666;margin-bottom:16px">ক্লায়েন্ট-সাইড Pixel + সার্ভার-সাইড Conversion API (CAPI) দুটোই কাজ করবে। ডুপ্লিকেশন এড়াতে Event ID দিয়ে ডিডুপ্লিকেশন হয়।</p>
         <div class="form-grid">
@@ -736,6 +801,9 @@ async function saveSettings(e) {
       whatsapp_number: document.getElementById('sWhatsapp').value,
       messenger_link: document.getElementById('sMessenger').value,
       facebook_page: document.getElementById('sFbPage').value,
+      steadfast_api_key: document.getElementById('sSteadfastKey').value,
+      steadfast_secret_key: document.getElementById('sSteadfastSecret').value,
+      steadfast_base_url: document.getElementById('sSteadfastUrl').value,
       facebook_pixel_id: document.getElementById('sFbPixelId').value,
       facebook_access_token: document.getElementById('sFbAccessToken').value,
       facebook_test_event_code: document.getElementById('sFbTestCode').value,
@@ -754,6 +822,15 @@ async function changePassword() {
     document.getElementById('sCurPass').value = '';
     document.getElementById('sNewPass').value = '';
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function checkCourierBalance() {
+  const el = document.getElementById('courierBalance');
+  el.textContent = 'চেক হচ্ছে...';
+  try {
+    const data = await api('/api/admin/courier/balance');
+    el.innerHTML = `<strong style="color:#16a34a">৳${data.current_balance}</strong>`;
+  } catch(e) { el.innerHTML = `<span style="color:#dc2626">${e.message}</span>`; }
 }
 
 // ===== INIT =====
