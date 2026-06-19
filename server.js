@@ -1317,22 +1317,28 @@ app.put('/api/admin/password', requireAdmin, async (req, res) => {
 
 app.get('/p/:slug', async (req, res) => {
   try {
+    // Special case: /p/home serves the main homepage
+    if (req.params.slug === 'home') {
+      return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
+
     const result = await pool.query("SELECT * FROM landing_pages WHERE slug = $1 AND status = 'published' AND deleted_at IS NULL", [req.params.slug]);
     if (result.rows.length === 0) return res.status(404).send('Page not found');
     const page = result.rows[0];
 
-    // Increment views
     await pool.query('UPDATE landing_pages SET views = views + 1 WHERE id = $1', [page.id]);
 
-    // Get settings for pixel
     const settings = await getSettings();
 
-    // Read the template
     const templatePath = path.join(__dirname, 'public', 'page-template.html');
     let template = fs.readFileSync(templatePath, 'utf8');
 
-    // Inject page data
-    template = template.replace('{{PAGE_DATA}}', JSON.stringify(page));
+    const pageData = {
+      ...page,
+      content: typeof page.content === 'string' ? JSON.parse(page.content) : (page.content || [])
+    };
+
+    template = template.replace('{{PAGE_DATA}}', JSON.stringify(pageData));
     template = template.replace('{{SETTINGS_DATA}}', JSON.stringify({
       shop_name: settings.shop_name_en || settings.shop_name,
       shop_phone: settings.shop_phone,

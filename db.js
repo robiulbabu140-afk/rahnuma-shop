@@ -442,7 +442,8 @@ async function initDatabase() {
       ];
 
       await client.query(`INSERT INTO landing_pages (title, slug, status, content, seo_title, seo_description, published_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        VALUES ($1, $2, $3, $4::json, $5, $6, NOW())
+        ON CONFLICT (slug) DO NOTHING`,
         [
           'রুকইয়াহ পেপার — রাহনুমা শপ',
           'home',
@@ -452,6 +453,7 @@ async function initDatabase() {
           'কালো জাদু ও বদনজর থেকে মুক্তি পান কুরআনিক রুকইয়াহয়। ১০০% হালাল ও সুন্নাহভিত্তিক। ক্যাশ অন ডেলিভারি।'
         ]
       );
+      console.log('Homepage landing page seeded.');
     }
 
     console.log('Database initialized successfully.');
