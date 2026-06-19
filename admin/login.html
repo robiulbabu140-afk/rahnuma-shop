@@ -1,26 +1,26 @@
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>অ্যাডমিন লগিন — রাহনুমা শপ</title>
+<title>Admin Login — Rahnuma Shop</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/admin/css/admin.css">
 </head>
 <body class="login-page">
   <div class="login-box">
-    <h1>রাহনুমা শপ</h1>
-    <p>অ্যাডমিন প্যানেল</p>
+    <h1>Rahnuma Shop</h1>
+    <p>Admin Panel</p>
     <form onsubmit="login(event)">
       <div class="form-group">
-        <label>ইউজারনেম</label>
+        <label>Username</label>
         <input type="text" id="username" required placeholder="admin">
       </div>
       <div class="form-group">
-        <label>পাসওয়ার্ড</label>
+        <label>Password</label>
         <input type="password" id="password" required placeholder="••••••">
       </div>
-      <button type="submit" class="btn-login" id="loginBtn">লগিন করুন</button>
+      <button type="submit" class="btn-login" id="loginBtn">Login</button>
       <div id="loginError" style="color:#e53e3e;font-size:13px;margin-top:10px;text-align:center"></div>
     </form>
   </div>
@@ -29,20 +29,21 @@ async function login(e) {
   e.preventDefault();
   const btn = document.getElementById('loginBtn');
   btn.disabled = true;
-  btn.textContent = 'লগিন হচ্ছে...';
+  btn.textContent = 'Logging in...';
   try {
     const res = await fetch('/api/admin/login', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
+      credentials: 'same-origin',
       body: JSON.stringify({
         username: document.getElementById('username').value,
         password: document.getElementById('password').value
       })
     });
     const data = await res.json();
-    if (!res.ok) { document.getElementById('loginError').textContent = data.error; btn.disabled = false; btn.textContent = 'লগিন করুন'; return; }
+    if (!res.ok) { document.getElementById('loginError').textContent = data.error; btn.disabled = false; btn.textContent = 'Login'; return; }
     window.location.href = '/admin/';
-  } catch(e) { document.getElementById('loginError').textContent = 'সমস্যা হয়েছে'; btn.disabled = false; btn.textContent = 'লগিন করুন'; }
+  } catch(e) { document.getElementById('loginError').textContent = 'Connection error'; btn.disabled = false; btn.textContent = 'Login'; }
 }
 </script>
 </body>

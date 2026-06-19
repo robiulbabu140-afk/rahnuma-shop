@@ -631,50 +631,41 @@ app.get('/api/admin/dashboard', requireAdmin, async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const monthStart = today.slice(0, 7) + '-01';
 
-    const todaySales = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [today])).rows[0];
-    const monthSales = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) >= $1 AND status != 'cancelled'", [monthStart])).rows[0];
-    const totalOrders = parseInt((await pool.query('SELECT COUNT(*) as c FROM orders')).rows[0].c);
-    const totalCustomers = parseInt((await pool.query('SELECT COUNT(*) as c FROM customers')).rows[0].c);
-    const totalProducts = parseInt((await pool.query('SELECT COUNT(*) as c FROM products WHERE is_active = 1')).rows[0].c);
+    const [todayR, monthR, ordersR, custR, prodR, statusR, lowR, recentR, delivR, expR, cogR] = await Promise.all([
+      pool.query("SELECT COUNT(*)::int as orders, COALESCE(SUM(total_amount),0)::float as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [today]),
+      pool.query("SELECT COUNT(*)::int as orders, COALESCE(SUM(total_amount),0)::float as revenue FROM orders WHERE DATE(created_at) >= $1 AND status != 'cancelled'", [monthStart]),
+      pool.query('SELECT COUNT(*)::int as c FROM orders'),
+      pool.query('SELECT COUNT(*)::int as c FROM customers'),
+      pool.query('SELECT COUNT(*)::int as c FROM products WHERE is_active = 1'),
+      pool.query("SELECT status, COUNT(*)::int as c FROM orders GROUP BY status"),
+      pool.query('SELECT id, name, name_bn, stock, low_stock_alert FROM products WHERE is_active = 1 AND stock <= low_stock_alert ORDER BY stock ASC LIMIT 10'),
+      pool.query('SELECT order_number, customer_name, phone, total_amount, status, created_at FROM orders ORDER BY created_at DESC LIMIT 10'),
+      pool.query("SELECT COALESCE(SUM(total_amount),0)::float as total FROM orders WHERE status = 'delivered'"),
+      pool.query('SELECT COALESCE(SUM(amount),0)::float as total FROM expenses'),
+      pool.query("SELECT COALESCE(SUM(oi.quantity * COALESCE(p.cost_price,0)),0)::float as total FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE o.status = 'delivered'"),
+    ]);
 
-    const statusCounts = (await pool.query("SELECT status, COUNT(*) as c FROM orders GROUP BY status")).rows;
     const statusMap = {};
-    statusCounts.forEach(s => { statusMap[s.status] = parseInt(s.c); });
-
-    const pendingOrders = statusMap.pending || 0;
-    const confirmedOrders = statusMap.confirmed || 0;
-    const shippedOrders = statusMap.shipped || 0;
-    const deliveredOrders = statusMap.delivered || 0;
-    const cancelledOrders = statusMap.cancelled || 0;
-    const returnedOrders = statusMap.returned || 0;
-    const flaggedOrders = statusMap.flagged || 0;
-
-    const lowStockProducts = (await pool.query('SELECT id, name, name_bn, stock, low_stock_alert FROM products WHERE is_active = 1 AND stock <= low_stock_alert ORDER BY stock ASC LIMIT 10')).rows;
-
-    const recentOrders = (await pool.query('SELECT order_number, customer_name, phone, total_amount, status, created_at FROM orders ORDER BY created_at DESC LIMIT 10')).rows;
+    statusR.rows.forEach(s => { statusMap[s.status] = s.c; });
 
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+      const d = new Date(); d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
-      const data = (await pool.query("SELECT COUNT(*) as orders, COALESCE(SUM(total_amount),0) as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [dateStr])).rows[0];
-      last7Days.push({ date: dateStr, orders: parseInt(data.orders), revenue: parseFloat(data.revenue) });
+      const data = (await pool.query("SELECT COUNT(*)::int as orders, COALESCE(SUM(total_amount),0)::float as revenue FROM orders WHERE DATE(created_at) = $1 AND status != 'cancelled'", [dateStr])).rows[0];
+      last7Days.push({ date: dateStr, orders: data.orders, revenue: data.revenue });
     }
 
-    const delivered = parseFloat((await pool.query("SELECT COALESCE(SUM(total_amount),0) as total FROM orders WHERE status = 'delivered'")).rows[0].total);
-    const totalExpenses = parseFloat((await pool.query('SELECT COALESCE(SUM(amount),0) as total FROM expenses')).rows[0].total);
-    const costOfGoods = parseFloat((await pool.query("SELECT COALESCE(SUM(oi.quantity * p.cost_price),0) as total FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE o.status = 'delivered'")).rows[0].total);
-
     res.json({
-      today: { orders: parseInt(todaySales.orders), revenue: parseFloat(todaySales.revenue) },
-      month: { orders: parseInt(monthSales.orders), revenue: parseFloat(monthSales.revenue) },
-      totalOrders, totalCustomers, totalProducts,
-      pendingOrders, confirmedOrders, shippedOrders, deliveredOrders, cancelledOrders, returnedOrders, flaggedOrders,
-      lowStockProducts,
-      recentOrders,
+      today: todayR.rows[0],
+      month: monthR.rows[0],
+      totalOrders: ordersR.rows[0].c, totalCustomers: custR.rows[0].c, totalProducts: prodR.rows[0].c,
+      pendingOrders: statusMap.pending || 0, confirmedOrders: statusMap.confirmed || 0, shippedOrders: statusMap.shipped || 0,
+      deliveredOrders: statusMap.delivered || 0, cancelledOrders: statusMap.cancelled || 0, returnedOrders: statusMap.returned || 0, flaggedOrders: statusMap.flagged || 0,
+      lowStockProducts: lowR.rows,
+      recentOrders: recentR.rows,
       last7Days,
-      profit: { revenue: delivered, costOfGoods, expenses: totalExpenses, net: delivered - costOfGoods - totalExpenses }
+      profit: { revenue: delivR.rows[0].total, costOfGoods: cogR.rows[0].total, expenses: expR.rows[0].total, net: delivR.rows[0].total - cogR.rows[0].total - expR.rows[0].total }
     });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
