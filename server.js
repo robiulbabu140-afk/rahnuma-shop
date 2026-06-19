@@ -29,7 +29,7 @@ app.use(session({
   secret: 'rahnuma-shop-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -933,7 +933,9 @@ app.put('/api/admin/password', requireAdmin, (req, res) => {
 
 // ===== SPA FALLBACKS =====
 
-app.get('/admin/*', (req, res) => {
+app.get('/admin/*', (req, res, next) => {
+  // Let actual files (login.html, css/, js/) be served by static middleware
+  if (req.path.match(/\.(html|css|js|png|jpg|ico)$/)) return next();
   res.sendFile(path.join(__dirname, 'admin', 'index.html'));
 });
 
