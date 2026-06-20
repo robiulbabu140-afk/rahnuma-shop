@@ -166,6 +166,7 @@ async function fetchOrders() {
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
+        <button class="btn btn-sm" style="background:#0f766e;color:#fff;padding:4px 8px" title="Customer Risk Check" onclick="checkCustomerBdCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">🔍</button>
         ${!o.consignment_id && (o.status==='confirmed'||o.status==='processing') ? `<button class="btn btn-sm btn-gold" onclick="sendToCourier(${o.id})">🚀</button>` : ''}
       </td>
     </tr>`).join('');
