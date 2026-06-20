@@ -496,6 +496,10 @@ async function loadDirectProducts() {
     const res = await fetch('/api/products?limit=50');
     const data = await res.json();
     directProducts = data.products;
+    if (directProducts.length === 1) {
+      const p = directProducts[0];
+      directSelected[p.id] = { id: p.id, price: p.sale_price || p.price, name: p.name_bn || p.name, qty: 1 };
+    }
     renderDirectProducts();
   } catch(e) {}
 }
