@@ -161,9 +161,8 @@ async function fetchOrders() {
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td style="white-space:nowrap">
-        ${o.consignment_id
-          ? `<button class="btn btn-sm" style="background:#0e7490;color:#fff;padding:3px 10px;font-size:12px" onclick="checkCourierStatus(${o.id},'${o.consignment_id}','${o.courier||''}')">📦 Track</button>`
-          : `<span style="color:#cbd5e1;font-size:12px">—</span>`}
+        <span style="font-weight:700;color:${rateColor}">${rate}%</span>
+        <button class="btn btn-sm btn-ghost" style="margin-left:4px;padding:2px 8px;font-size:11px" onclick="showCourierStats()">Check</button>
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
@@ -172,7 +171,7 @@ async function fetchOrders() {
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Track</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
     pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
@@ -181,16 +180,10 @@ async function fetchOrders() {
   } catch(e) { document.getElementById('ordersTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
 }
 
-function showCourierStats() {
-  const stats = _courierStats;
-  if (!stats) { toast('No courier data available', 'error'); return; }
+function _renderCourierStatsModal(modal, stats) {
   const now = new Date().toLocaleString('en-US', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
   const rateColor = parseFloat(stats.overall.rate) >= 70 ? '#16a34a' : '#dc2626';
-
-  const modal = document.createElement('div');
-  modal.className = 'admin-modal';
-  modal.onclick = function(e) { if(e.target===this) this.remove(); };
-  modal.innerHTML = `<div class="admin-modal-content" style="max-width:460px">
+  modal.querySelector('.admin-modal-content').innerHTML = `
     <div class="modal-header">
       <h2>Courier Success Rate</h2>
       <button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button>
@@ -228,9 +221,38 @@ function showCourierStats() {
     </table>
     <div style="text-align:right;font-size:11px;color:#9ca3af;margin-top:12px;padding-top:8px;border-top:1px solid #f3f4f6">
       Checked: ${now}
+    </div>`;
+}
+
+async function showCourierStats() {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:460px">
+    <div class="modal-header">
+      <h2>Courier Success Rate</h2>
+      <button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <div style="padding:30px;text-align:center">
+      <div style="width:36px;height:36px;border:4px solid #e2e8f0;border-top-color:#0f766e;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto"></div>
+      <p style="color:#94a3b8;margin-top:12px;font-size:13px">Courier API থেকে data আনছে...</p>
     </div>
   </div>`;
+  if (!document.querySelector('#bdSpinStyle')) {
+    const st = document.createElement('style'); st.id = 'bdSpinStyle';
+    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
   document.body.appendChild(modal);
+  try {
+    const stats = await api('/api/admin/courier/live-stats');
+    _courierStats = stats;
+    _renderCourierStatsModal(modal, stats);
+  } catch(e) {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header"><h2>Courier Success Rate</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div style="padding:30px;text-align:center"><p style="color:#ef4444">${e.message}</p></div>`;
+  }
 }
 
 async function viewOrder(id) {
