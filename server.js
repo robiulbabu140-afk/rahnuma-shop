@@ -1593,15 +1593,61 @@ app.get('/api/admin/reports/profit', requireAdmin, async (req, res) => {
 
 app.get('/api/admin/inventory/overview', requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query(`SELECT p.id, p.name, p.name_bn, p.sku, p.price, p.cost_price, p.stock, p.low_stock_alert, c.name as category FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.deleted_at IS NULL ORDER BY p.stock ASC NULLS FIRST`);
+    const result = await pool.query(`
+      SELECT p.id, p.name, p.name_bn, p.sku, p.price, p.sale_price, p.cost_price,
+             p.stock, p.low_stock_alert, p.damaged_stock, p.unit, p.image,
+             c.name as category, c.id as category_id
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.is_active IS NOT NULL
+      ORDER BY p.stock ASC NULLS FIRST
+    `);
     res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/inventory/stats', requireAdmin, async (req, res) => {
+  try {
+    const [products, soldRes, purchaseRes] = await Promise.all([
+      pool.query(`SELECT p.stock, p.cost_price, p.price, p.low_stock_alert, p.damaged_stock, c.name as category
+                  FROM products p LEFT JOIN categories c ON p.category_id=c.id WHERE p.is_active IS NOT NULL`),
+      pool.query(`SELECT COALESCE(SUM(quantity),0)::int as total FROM order_items oi JOIN orders o ON oi.order_id=o.id WHERE o.status='delivered'`),
+      pool.query(`SELECT COALESCE(SUM(total_cost),0)::float as total FROM purchases`)
+    ]);
+    const rows = products.rows;
+    const totalProducts = rows.length;
+    const totalStock = rows.reduce((s,p)=>s+parseInt(p.stock||0),0);
+    const stockValue = rows.reduce((s,p)=>s+(parseFloat(p.cost_price||0)*parseInt(p.stock||0)),0);
+    const saleValue = rows.reduce((s,p)=>s+(parseFloat(p.price||0)*parseInt(p.stock||0)),0);
+    const lowStock = rows.filter(p=>parseInt(p.stock||0)>0 && parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5)).length;
+    const outOfStock = rows.filter(p=>parseInt(p.stock||0)===0).length;
+    const totalDamaged = rows.reduce((s,p)=>s+parseInt(p.damaged_stock||0),0);
+
+    const catMap = {};
+    rows.forEach(p=>{ const k=p.category||'Uncategorized'; catMap[k]=(catMap[k]||0)+parseInt(p.stock||0); });
+    const byCategory = Object.entries(catMap).map(([name,stock])=>({name,stock})).sort((a,b)=>b.stock-a.stock);
+
+    res.json({
+      totalProducts, totalStock, stockValue: Math.round(stockValue),
+      saleValue: Math.round(saleValue), lowStock, outOfStock, totalDamaged,
+      totalSold: parseInt(soldRes.rows[0].total), totalPurchased: Math.round(purchaseRes.rows[0].total),
+      byCategory
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.patch('/api/admin/inventory/stock/:id', requireAdmin, async (req, res) => {
   try {
     const { stock } = req.body;
-    await pool.query('UPDATE products SET stock=$1 WHERE id=$2', [parseInt(stock), req.params.id]);
+    await pool.query('UPDATE products SET stock=$1, updated_at=NOW() WHERE id=$2', [parseInt(stock), req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/admin/inventory/damaged/:id', requireAdmin, async (req, res) => {
+  try {
+    const { damaged_stock } = req.body;
+    await pool.query('UPDATE products SET damaged_stock=$1, updated_at=NOW() WHERE id=$2', [parseInt(damaged_stock)||0, req.params.id]);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
