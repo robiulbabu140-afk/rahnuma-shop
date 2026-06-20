@@ -268,6 +268,30 @@ async function initDatabase() {
         content JSON,
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        address TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS purchases (
+        id SERIAL PRIMARY KEY,
+        supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_name TEXT,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        product_name TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 0,
+        cost_per_unit NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+        purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Create indexes (IF NOT EXISTS is supported in PG 9.5+)
