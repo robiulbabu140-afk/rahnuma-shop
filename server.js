@@ -942,6 +942,34 @@ app.post('/api/admin/orders/:id/send-courier', requireAdmin, async (req, res) =>
   }
 });
 
+// Live courier status — routes to correct courier API based on order.courier
+app.get('/api/admin/orders/:id/courier-live-status', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (!orderResult.rows.length) return res.status(404).json({ error: 'Order not found' });
+    const order = orderResult.rows[0];
+    if (!order.consignment_id) return res.status(400).json({ error: 'এই অর্ডার এখনো কোনো কুরিয়ারে পাঠানো হয়নি' });
+
+    const courierName = (order.courier || 'steadfast').toLowerCase();
+    let result;
+
+    if (courierName.includes('pathao')) {
+      result = await pathaoRequest('GET', `/aladdin/api/v1/orders/${order.consignment_id}`);
+      const s = result.data || result;
+      res.json({ status: { delivery_status: s.order_status || s.status }, note: s.order_status_log || '' });
+    } else if (courierName.includes('redx')) {
+      result = await redxRequest('GET', `/v1.0.0/parcel/${order.consignment_id}`);
+      res.json({ status: { delivery_status: result.parcel?.status || result.status }, note: result.parcel?.location || '' });
+    } else {
+      result = await steadfastRequest('GET', `/status_by_cid/${order.consignment_id}`);
+      if (result.delivery_status) {
+        await pool.query('UPDATE orders SET courier_status=$1, updated_at=NOW() WHERE id=$2', [result.delivery_status, order.id]);
+      }
+      res.json({ status: result, note: result.note || result.tracking_message || '' });
+    }
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Check courier status manually
 app.get('/api/admin/orders/:id/courier-status', requireAdmin, async (req, res) => {
   try {
