@@ -446,7 +446,7 @@ const _bdLocalCache = new Map();
 
 async function _getBdKey() {
   if (_bdApiKey) return _bdApiKey;
-  const r = await fetch('/api/admin/bdcourier-key');
+  const r = await fetch('/api/admin/bdcourier-key', { credentials: 'same-origin' });
   const j = await r.json();
   _bdApiKey = j.key;
   return _bdApiKey;
@@ -582,24 +582,10 @@ async function checkCustomerBdCourier(phone, name) {
   }
 
   try {
-    let data;
-    try {
-      const key = await _getBdKey();
-      const r = await _fetchWithTimeout('https://api.bdcourier.com/courier-check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ phone: cleanPhone })
-      }, 12000);
-      data = await r.json();
-    } catch {
-      const r2 = await _fetchWithTimeout('/api/admin/customer/bdcourier-check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
-      }, 15000);
-      data = await r2.json();
-    }
-
+    const data = await api('/api/admin/customer/bdcourier-check', {
+      method: 'POST',
+      body: JSON.stringify({ phone: cleanPhone })
+    });
     _bdLocalCache.set(cacheKey, { d: data, t: Date.now() });
     _renderBdResult(modal, data, name, phone);
   } catch(e) {
