@@ -247,7 +247,7 @@ async function viewOrder(id) {
       <div class="order-detail-grid">
         <div class="detail-box"><h4>Customer Info</h4>
           <div class="detail-row"><span>Name:</span><span>${o.customer_name}</span></div>
-          <div class="detail-row"><span>Phone:</span><span>${o.phone}</span></div>
+          <div class="detail-row"><span>Phone:</span><span>${o.phone} <button class="btn btn-sm" style="margin-left:8px;background:#0f766e;color:#fff;padding:2px 10px;font-size:12px" onclick="checkCustomerBdCourier('${o.phone}','${o.customer_name}')">🔍 Customer Check</button></span></div>
           <div class="detail-row"><span>Address:</span><span>${o.address}</span></div>
           <div class="detail-row"><span>District:</span><span>${o.district || '-'}</span></div>
           ${o.problem_description ? `<div class="detail-row"><span>Issue:</span><span>${o.problem_description}</span></div>` : ''}
@@ -360,6 +360,125 @@ async function refreshCourierStatus(orderId) {
 async function deleteOrder(id) {
   try { await api('/api/admin/orders/' + id, { method: 'DELETE' }); toast('Order deleted'); fetchOrders(); }
   catch(e) { toast(e.message, 'error'); }
+}
+
+async function checkCustomerBdCourier(phone, name) {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:640px">
+    <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
+      <h2 style="color:#fff">🔍 Customer Risk Check</h2>
+      <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <div style="padding:20px;text-align:center">
+      <p style="color:#64748b;margin-bottom:6px">Checking delivery history for</p>
+      <p style="font-size:18px;font-weight:700;color:#0f172a">${name} — ${phone}</p>
+      <div style="margin-top:20px;font-size:28px">⏳</div>
+      <p style="color:#94a3b8;margin-top:8px">Loading from BD Courier...</p>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  try {
+    const res = await fetch('/api/admin/customer/bdcourier-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      modal.querySelector('.admin-modal-content').innerHTML = `
+        <div class="modal-header"><h2>🔍 Customer Risk Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+        <div style="padding:30px;text-align:center">
+          <div style="font-size:40px;margin-bottom:12px">❌</div>
+          <p style="color:#ef4444;font-weight:600">${data.error || 'Failed to check'}</p>
+        </div>`;
+      return;
+    }
+
+    if (data.status === 'error') {
+      modal.querySelector('.admin-modal-content').innerHTML = `
+        <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
+          <h2 style="color:#fff">🔍 Customer Risk Check</h2>
+          <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+        </div>
+        <div style="padding:30px;text-align:center">
+          <div style="font-size:48px;margin-bottom:12px">✅</div>
+          <p style="font-size:18px;font-weight:700;color:#16a34a">কোনো রিপোর্ট পাওয়া যায়নি</p>
+          <p style="color:#64748b;margin-top:8px">এই কাস্টমারের বিরুদ্ধে কোনো ফ্রড রিপোর্ট নেই</p>
+          <p style="color:#94a3b8;margin-top:4px;font-size:13px">${name} — ${phone}</p>
+        </div>`;
+      return;
+    }
+
+    const d = data.data || {};
+    const summary = d.summary || {};
+    const reports = data.reports || [];
+    const couriers = Object.entries(d).filter(([k]) => k !== 'summary');
+
+    const riskColor = summary.success_ratio >= 80 ? '#16a34a' : summary.success_ratio >= 60 ? '#d97706' : '#ef4444';
+    const riskLabel = summary.success_ratio >= 80 ? '✅ কম ঝুঁকি' : summary.success_ratio >= 60 ? '⚠️ মাঝারি ঝুঁকি' : '🚨 উচ্চ ঝুঁকি';
+
+    const courierCards = couriers.map(([key, c]) => {
+      const ratio = c.success_ratio || 0;
+      const barColor = ratio >= 80 ? '#16a34a' : ratio >= 60 ? '#d97706' : '#ef4444';
+      return `<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <img src="${c.logo}" onerror="this.style.display='none'" style="height:22px;object-fit:contain">
+          <span style="font-weight:600;font-size:14px">${c.name}</span>
+          <span style="margin-left:auto;font-weight:700;color:${barColor}">${ratio}%</span>
+        </div>
+        <div style="background:#e2e8f0;border-radius:99px;height:7px">
+          <div style="width:${ratio}%;background:${barColor};border-radius:99px;height:100%;transition:width .5s"></div>
+        </div>
+        <div style="display:flex;gap:12px;font-size:12px;color:#64748b">
+          <span>মোট: <strong>${c.total_parcel}</strong></span>
+          <span>সফল: <strong style="color:#16a34a">${c.success_parcel}</strong></span>
+          <span>বাতিল: <strong style="color:#ef4444">${c.cancelled_parcel}</strong></span>
+        </div>
+      </div>`;
+    }).join('');
+
+    const reportRows = reports.length ? reports.map(r => `
+      <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <img src="${r.courierLogo}" onerror="this.style.display='none'" style="height:18px;object-fit:contain">
+          <span style="font-weight:600;color:#c2410c">${r.courierName}</span>
+          <span style="margin-left:auto;font-size:12px;color:#94a3b8">${new Date(r.created_at).toLocaleDateString('bn-BD')}</span>
+        </div>
+        <p style="font-size:13px;color:#7c2d12;margin:0"><strong>${r.name}</strong> — ${r.details}</p>
+      </div>`).join('') :
+      `<div style="text-align:center;color:#64748b;padding:16px">কোনো ফ্রড রিপোর্ট নেই ✅</div>`;
+
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
+        <h2 style="color:#fff">🔍 Customer Risk Check</h2>
+        <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+      </div>
+      <div style="padding:20px">
+        <div style="background:#f0fdf4;border:2px solid ${riskColor};border-radius:12px;padding:16px;text-align:center;margin-bottom:20px">
+          <p style="font-size:22px;font-weight:800;color:${riskColor}">${riskLabel}</p>
+          <p style="color:#0f172a;font-size:15px;margin-top:4px">${name} — ${phone}</p>
+          <div style="display:flex;justify-content:center;gap:28px;margin-top:12px">
+            <div><div style="font-size:22px;font-weight:800;color:#0f172a">${summary.total_parcel||0}</div><div style="font-size:12px;color:#64748b">মোট পার্সেল</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:#16a34a">${summary.success_parcel||0}</div><div style="font-size:12px;color:#64748b">সফল ডেলিভারি</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:#ef4444">${summary.cancelled_parcel||0}</div><div style="font-size:12px;color:#64748b">বাতিল</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:${riskColor}">${summary.success_ratio||0}%</div><div style="font-size:12px;color:#64748b">সাফল্যের হার</div></div>
+          </div>
+        </div>
+
+        <h4 style="margin-bottom:12px;color:#334155">কুরিয়ার ভিত্তিক বিশ্লেষণ</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">${courierCards}</div>
+
+        <h4 style="margin-bottom:12px;color:#334155">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
+        ${reportRows}
+      </div>`;
+  } catch(e) {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header"><h2>🔍 Customer Risk Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div style="padding:30px;text-align:center"><p style="color:#ef4444">${e.message}</p></div>`;
+  }
 }
 
 // ===== PRODUCTS =====
@@ -2115,6 +2234,14 @@ async function loadSettings() {
       </div>
 
       <div class="settings-section">
+        <h3>🔍 BD Courier — Customer Risk Check</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">কাস্টমারের ডেলিভারি ইতিহাস ও ফ্রড রিপোর্ট চেক করুন। Order detail থেকে "Customer Check" বাটন দিয়ে ব্যবহার করুন।</p>
+        <div class="form-grid">
+          <div class="form-group"><label>API Key</label><input id="sBdcourierApiKey" type="password" value="${s.bdcourier_api_key||''}" placeholder="BD Courier API Key"><small style="color:#888">api.bdcourier.com Bearer token</small></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3>Facebook Pixel & Conversion API</h3>
         <p style="font-size:13px;color:#666;margin-bottom:16px">Client-side Pixel + Server-side Conversion API (CAPI) both work. Deduplication via Event ID prevents duplicate events.</p>
         <div class="form-grid">
@@ -2190,6 +2317,7 @@ async function saveSettings(e) {
       pathao_base_url: document.getElementById('sPathaoBaseUrl').value,
       redx_api_key: document.getElementById('sRedxApiKey').value,
       redx_base_url: document.getElementById('sRedxBaseUrl').value,
+      bdcourier_api_key: document.getElementById('sBdcourierApiKey').value,
       facebook_pixel_id: document.getElementById('sFbPixelId').value,
       facebook_access_token: document.getElementById('sFbAccessToken').value,
       facebook_test_event_code: document.getElementById('sFbTestCode').value,
