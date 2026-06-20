@@ -181,8 +181,7 @@ function renderBlock(block, index) {
         '</div>';
 
     case 'product':
-      return '<div class="block-product" id="product-block-' + index + '"><div style="text-align:center;padding:40px;color:#999">Loading product...</div></div>' +
-        '<script>loadProductBlock(' + index + ', ' + JSON.stringify(block.data) + ')<\/script>';
+      return '';
 
     case 'cta':
       return '<div class="block-cta">' +
