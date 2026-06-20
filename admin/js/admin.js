@@ -140,10 +140,18 @@ async function loadOrders() {
   fetchOrders();
 }
 
+let _courierStats = null;
+
 async function fetchOrders() {
   try {
-    const params = new URLSearchParams({ page: ordersPage, limit: 20, status: ordersStatus, search: ordersSearch });
-    const data = await api('/api/admin/orders?' + params);
+    const [data, stats] = await Promise.all([
+      api('/api/admin/orders?' + new URLSearchParams({ page: ordersPage, limit: 20, status: ordersStatus, search: ordersSearch })),
+      api('/api/admin/courier/success-stats').catch(() => null)
+    ]);
+    _courierStats = stats;
+    const rate = stats ? stats.overall.rate : '—';
+    const rateColor = stats && parseFloat(stats.overall.rate) >= 70 ? '#16a34a' : '#dc2626';
+
     const tbody = data.orders.map(o => `<tr>
       <td><strong>${o.order_number}</strong></td>
       <td>${o.customer_name}<br><small style="color:#999">${o.phone}</small></td>
@@ -152,19 +160,75 @@ async function fetchOrders() {
       <td>${o.payment_status === 'paid' ? '<span style="color:#16a34a">Paid</span>' : '<span style="color:#f59e0b">Unpaid</span>'}</td>
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
+      <td style="white-space:nowrap">
+        <span style="font-weight:700;color:${rateColor}">${rate}%</span>
+        <button class="btn btn-sm btn-ghost" style="margin-left:4px;padding:2px 8px;font-size:11px" onclick="showCourierStats()">Check</button>
+      </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
         ${!o.consignment_id && (o.status==='confirmed'||o.status==='processing') ? `<button class="btn btn-sm btn-gold" onclick="sendToCourier(${o.id})">🚀</button>` : ''}
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
     pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
     pagHtml += `<button ${data.page>=data.pages?'disabled':''} onclick="ordersPage++;fetchOrders()">Next →</button>`;
     document.getElementById('ordersPagination').innerHTML = pagHtml;
   } catch(e) { document.getElementById('ordersTable').innerHTML = '<p style="padding:20px;color:red">Load failed</p>'; }
+}
+
+function showCourierStats() {
+  const stats = _courierStats;
+  if (!stats) { toast('No courier data available', 'error'); return; }
+  const now = new Date().toLocaleString('en-US', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  const rateColor = parseFloat(stats.overall.rate) >= 70 ? '#16a34a' : '#dc2626';
+
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:460px">
+    <div class="modal-header">
+      <h2>Courier Success Rate</h2>
+      <button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <div style="text-align:center;padding:20px 0 12px">
+      <div style="font-size:42px;font-weight:800;color:${rateColor}">${stats.overall.rate}%</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:6px">
+        ${stats.overall.total} total &bull; <span style="color:#16a34a">${stats.overall.success} success</span> &bull; <span style="color:#dc2626">${stats.overall.cancel} cancel</span>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:8px">
+      <thead>
+        <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb">
+          <th style="padding:10px 12px;text-align:left">Courier</th>
+          <th style="padding:10px 12px;text-align:center">Total</th>
+          <th style="padding:10px 12px;text-align:center">Success</th>
+          <th style="padding:10px 12px;text-align:center">Cancel</th>
+          <th style="padding:10px 12px;text-align:center">Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${stats.couriers.length === 0 ? `<tr><td colspan="5" style="text-align:center;padding:20px;color:#999">No courier data yet</td></tr>` :
+          stats.couriers.map(c => {
+            const cr = parseFloat(c.rate);
+            const color = cr >= 70 ? '#16a34a' : cr >= 40 ? '#f59e0b' : '#dc2626';
+            return `<tr style="border-bottom:1px solid #f3f4f6">
+              <td style="padding:10px 12px;font-weight:600">${c.courier}</td>
+              <td style="padding:10px 12px;text-align:center">${c.total}</td>
+              <td style="padding:10px 12px;text-align:center;color:#16a34a;font-weight:600">${c.success}</td>
+              <td style="padding:10px 12px;text-align:center;color:#dc2626;font-weight:600">${c.cancel}</td>
+              <td style="padding:10px 12px;text-align:center;font-weight:700;color:${color}">${c.rate}%</td>
+            </tr>`;
+          }).join('')}
+      </tbody>
+    </table>
+    <div style="text-align:right;font-size:11px;color:#9ca3af;margin-top:12px;padding-top:8px;border-top:1px solid #f3f4f6">
+      Checked: ${now}
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
 }
 
 async function viewOrder(id) {
