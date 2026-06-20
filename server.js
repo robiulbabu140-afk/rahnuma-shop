@@ -956,6 +956,33 @@ app.get('/api/admin/orders/:id/courier-status', requireAdmin, async (req, res) =
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Courier success stats
+app.get('/api/admin/courier/success-stats', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT courier,
+        COUNT(*)::int as total,
+        SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END)::int as success,
+        SUM(CASE WHEN status IN ('cancelled','returned') THEN 1 ELSE 0 END)::int as cancel
+      FROM orders
+      WHERE courier IS NOT NULL AND courier != '' AND consignment_id IS NOT NULL
+      GROUP BY courier ORDER BY courier
+    `);
+    const couriers = result.rows.map(r => ({
+      courier: r.courier,
+      total: r.total,
+      success: r.success,
+      cancel: r.cancel,
+      rate: r.total > 0 ? ((r.success / r.total) * 100).toFixed(1) : '0.0'
+    }));
+    const totalTotal = couriers.reduce((s, c) => s + c.total, 0);
+    const totalSuccess = couriers.reduce((s, c) => s + c.success, 0);
+    const totalCancel = couriers.reduce((s, c) => s + c.cancel, 0);
+    const overallRate = totalTotal > 0 ? ((totalSuccess / totalTotal) * 100).toFixed(1) : '0.0';
+    res.json({ overall: { total: totalTotal, success: totalSuccess, cancel: totalCancel, rate: overallRate }, couriers });
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
 // Check Steadfast balance
 app.get('/api/admin/courier/balance', requireAdmin, async (req, res) => {
   try {
