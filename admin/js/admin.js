@@ -23,7 +23,7 @@ function loadPage(page) {
   const titles = { dashboard:'Dashboard', orders:'Order Management', products:'Product Management', categories:'Categories', customers:'Customer Management', coupons:'Coupon Management', expenses:'Expense Management', reports:'Reports', ads:'Ad Performance', pages:'Landing Pages', fraud:'Fraud Protection', settings:'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
 
-  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, reports: loadReports, ads: loadAdsPage, pages: loadPages, fraud: loadFraudPage, settings: loadSettings };
+  const loaders = { dashboard: loadDashboard, orders: loadOrders, products: loadProducts, categories: loadCategories, customers: loadCustomers, coupons: loadCoupons, expenses: loadExpenses, inventory: loadInventory, reports: loadReports, ads: loadAdsPage, pages: loadPages, fraud: loadFraudPage, settings: loadSettings };
   if (loaders[page]) loaders[page]();
 
   document.getElementById('sidebar').classList.remove('open');
@@ -1058,31 +1058,386 @@ async function deleteExpense(id) {
 }
 
 // ===== REPORTS =====
+let reportTab = 'sales';
+let reportRange = 'this_month';
+
+function _reportDates(range) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  if (range === 'today') { const t=fmt(now); return {from:t,to:t}; }
+  if (range === 'yesterday') { const y=new Date(now); y.setDate(y.getDate()-1); const s=fmt(y); return {from:s,to:s}; }
+  if (range === 'last7') { const f=new Date(now); f.setDate(f.getDate()-6); return {from:fmt(f),to:fmt(now)}; }
+  if (range === 'this_month') { return {from:`${now.getFullYear()}-${pad(now.getMonth()+1)}-01`,to:fmt(now)}; }
+  if (range === 'last_month') {
+    const f=new Date(now.getFullYear(),now.getMonth()-1,1);
+    const t=new Date(now.getFullYear(),now.getMonth(),0);
+    return {from:fmt(f),to:fmt(t)};
+  }
+  return {from:'',to:''};
+}
+
 async function loadReports() {
   const c = document.getElementById('pageContent');
-  try {
-    const sales = await api('/api/admin/reports/sales?group_by=day');
-    const topProducts = await api('/api/admin/reports/products');
+  const tabs = ['sales','products','customers','courier','profit'];
+  const tabLabels = {sales:'📊 Sales',products:'🏷 Products',customers:'👥 Customers',courier:'🚚 Courier',profit:'💰 Profit'};
+  const ranges = [
+    {key:'today',label:'Today'},
+    {key:'yesterday',label:'Yesterday'},
+    {key:'last7',label:'Last 7 Days'},
+    {key:'this_month',label:'This Month'},
+    {key:'last_month',label:'Last Month'},
+    {key:'all',label:'All Time'},
+  ];
 
-    const maxRev = Math.max(...sales.slice(0, 14).map(s => s.revenue), 1);
-
-    c.innerHTML = `
-    <div class="chart-box">
-      <h3>Daily Sales (Recent)</h3>
-      <div class="chart-bars">
-        ${sales.slice(0, 14).reverse().map(day => {
-          const h = Math.max((day.revenue / maxRev) * 130, 4);
-          return `<div class="chart-bar" style="height:${h}px"><span class="chart-bar-val">TK ${day.revenue}</span><span class="chart-bar-label">${day.period.slice(5)}</span></div>`;
-        }).join('')}
-      </div>
+  c.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+      ${ranges.map(r=>`<button class="btn btn-sm ${reportRange===r.key?'btn-primary':'btn-ghost'}" onclick="reportRange='${r.key}';loadReports()">${r.label}</button>`).join('')}
     </div>
-    <div class="table-wrap">
-      <div class="table-header"><h2>Top Products</h2></div>
-      <table><thead><tr><th>Product</th><th>Total Sold</th><th>Total Revenue</th></tr></thead><tbody>
-      ${topProducts.map(p => `<tr><td>${p.product_name}</td><td>${p.total_sold} units</td><td>TK ${p.total_revenue}</td></tr>`).join('')}
-      </tbody></table>
-    </div>`;
-  } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
+    <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e5e7eb">
+      ${tabs.map(t=>`<button onclick="reportTab='${t}';loadReports()" style="padding:10px 18px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:${reportTab===t?'#0f766e':'#6b7280'};border-bottom:${reportTab===t?'2px solid #0f766e':'2px solid transparent'};margin-bottom:-2px">${tabLabels[t]}</button>`).join('')}
+    </div>
+    <div id="reportBody"><div style="text-align:center;padding:40px;color:#94a3b8">Loading...</div></div>`;
+
+  const {from,to} = _reportDates(reportRange);
+  const qs = `${from?`from=${from}&`:''}${to?`to=${to}`:''}`;
+
+  try {
+    const rb = document.getElementById('reportBody');
+    if (reportTab === 'sales') {
+      const [sales] = await Promise.all([api(`/api/admin/reports/sales?group_by=day&${qs}`)]);
+      const maxRev = Math.max(...sales.map(s=>parseFloat(s.revenue)||0), 1);
+      const totalRev = sales.reduce((s,d)=>s+parseFloat(d.revenue||0),0);
+      const totalOrd = sales.reduce((s,d)=>s+parseInt(d.orders||0),0);
+      rb.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+          <div class="stat-card"><div class="label">Total Revenue</div><div class="value">TK ${Math.round(totalRev).toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Total Orders</div><div class="value">${totalOrd}</div></div>
+          <div class="stat-card"><div class="label">Avg Order Value</div><div class="value">TK ${totalOrd?Math.round(totalRev/totalOrd):0}</div></div>
+        </div>
+        <div class="chart-box">
+          <h3>Daily Sales</h3>
+          <div class="chart-bars" style="min-height:150px">
+            ${sales.slice(0,30).reverse().map(day=>{
+              const h=Math.max((parseFloat(day.revenue)/maxRev)*130,4);
+              return `<div class="chart-bar" style="height:${h}px" title="TK ${Math.round(day.revenue)}"><span class="chart-bar-val">TK ${Math.round(parseFloat(day.revenue)/1000)}k</span><span class="chart-bar-label">${day.period.slice(5)}</span></div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:20px">
+          <table><thead><tr><th>Date</th><th>Orders</th><th>Revenue</th><th>Delivered</th></tr></thead><tbody>
+          ${sales.map(d=>`<tr><td>${d.period}</td><td>${d.orders}</td><td>TK ${Math.round(d.revenue).toLocaleString()}</td><td>TK ${Math.round(d.delivered_revenue||0).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#999">No data</td></tr>'}
+          </tbody></table>
+        </div>`;
+
+    } else if (reportTab === 'products') {
+      const data = await api(`/api/admin/reports/products?${qs}`);
+      rb.innerHTML = `
+        <div class="table-wrap">
+          <table><thead><tr><th>#</th><th>Product</th><th>Units Sold</th><th>Revenue</th></tr></thead><tbody>
+          ${data.map((p,i)=>`<tr><td>${i+1}</td><td>${p.product_name}</td><td><strong>${p.total_sold}</strong></td><td>TK ${Math.round(p.total_revenue).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#999">No data</td></tr>'}
+          </tbody></table>
+        </div>`;
+
+    } else if (reportTab === 'customers') {
+      const d = await api(`/api/admin/reports/customers?${qs}`);
+      rb.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px">
+          <div class="stat-card"><div class="label">New Customers</div><div class="value">${d.totalNew}</div></div>
+          <div class="stat-card"><div class="label">Repeat Customers</div><div class="value">${d.repeatCount}</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header"><h2>Top Customers</h2></div>
+          <table><thead><tr><th>Name</th><th>Phone</th><th>Orders</th><th>Total Spend</th></tr></thead><tbody>
+          ${d.topCustomers.map(c=>`<tr><td>${c.name||'-'}</td><td>${c.phone}</td><td>${c.orders}</td><td>TK ${Math.round(c.total).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:#999">No data</td></tr>'}
+          </tbody></table>
+        </div>`;
+
+    } else if (reportTab === 'courier') {
+      const d = await api(`/api/admin/reports/courier?${qs}`);
+      const oc = parseFloat(d.overall.rate)>=70?'#16a34a':'#dc2626';
+      rb.innerHTML = `
+        <div style="text-align:center;margin-bottom:24px">
+          <div style="font-size:48px;font-weight:800;color:${oc}">${d.overall.rate}%</div>
+          <div style="color:#6b7280;margin-top:4px">${d.overall.total} total · ${d.overall.success} success · ${d.overall.cancel} cancel</div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Courier</th><th>Total</th><th>Success</th><th>Cancel</th><th>Rate</th></tr></thead><tbody>
+          ${d.couriers.length===0?'<tr><td colspan="5" style="text-align:center;color:#999">No courier data</td></tr>':
+            d.couriers.map(c=>{
+              const cr=parseFloat(c.rate);
+              const col=cr>=70?'#16a34a':cr>=40?'#f59e0b':'#dc2626';
+              return `<tr><td><strong>${c.courier}</strong></td><td>${c.total}</td><td style="color:#16a34a;font-weight:700">${c.success}</td><td style="color:#dc2626;font-weight:700">${c.cancel}</td><td style="font-weight:700;color:${col}">${c.rate}%</td></tr>`;
+            }).join('')}
+          </tbody></table>
+        </div>`;
+
+    } else if (reportTab === 'profit') {
+      const d = await api(`/api/admin/reports/profit?${qs}`);
+      const nc = d.netProfit>=0?'#16a34a':'#dc2626';
+      rb.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px">
+          <div class="stat-card"><div class="label">Revenue (Delivered)</div><div class="value" style="color:#0f766e">TK ${Math.round(d.revenue).toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Purchase Cost</div><div class="value" style="color:#dc2626">TK ${Math.round(d.purchaseCost).toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Gross Profit</div><div class="value">TK ${Math.round(d.grossProfit).toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Expenses</div><div class="value" style="color:#dc2626">TK ${Math.round(d.expenses).toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">Ad Spend</div><div class="value" style="color:#dc2626">TK ${Math.round(d.adSpend).toLocaleString()}</div></div>
+          <div class="stat-card" style="border:2px solid ${nc}"><div class="label">Net Profit</div><div class="value" style="color:${nc};font-size:28px">TK ${Math.round(d.netProfit).toLocaleString()}</div></div>
+        </div>
+        <div class="table-wrap">
+          <table><tbody>
+            <tr><td>Revenue</td><td style="text-align:right;color:#16a34a">+ TK ${Math.round(d.revenue).toLocaleString()}</td></tr>
+            <tr><td>Purchase Cost</td><td style="text-align:right;color:#dc2626">- TK ${Math.round(d.purchaseCost).toLocaleString()}</td></tr>
+            <tr style="font-weight:700;border-top:2px solid #e5e7eb"><td>Gross Profit</td><td style="text-align:right">TK ${Math.round(d.grossProfit).toLocaleString()}</td></tr>
+            <tr><td>Expenses</td><td style="text-align:right;color:#dc2626">- TK ${Math.round(d.expenses).toLocaleString()}</td></tr>
+            <tr><td>Ad Spend</td><td style="text-align:right;color:#dc2626">- TK ${Math.round(d.adSpend).toLocaleString()}</td></tr>
+            <tr style="font-weight:800;font-size:16px;border-top:2px solid #e5e7eb;color:${nc}"><td>Net Profit</td><td style="text-align:right">TK ${Math.round(d.netProfit).toLocaleString()}</td></tr>
+          </tbody></table>
+        </div>`;
+    }
+  } catch(e) {
+    document.getElementById('reportBody').innerHTML = `<p style="color:red;padding:20px">Error: ${e.message}</p>`;
+  }
+}
+
+// ===== INVENTORY =====
+let invTab = 'stock';
+
+async function loadInventory() {
+  const c = document.getElementById('pageContent');
+  const tabs = ['stock','lowstock','suppliers','purchases'];
+  const tabLabels = {stock:'📦 Stock Overview',lowstock:'⚠️ Low Stock',suppliers:'🏢 Suppliers',purchases:'🛒 Purchase Orders'};
+
+  c.innerHTML = `
+    <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e5e7eb;flex-wrap:wrap">
+      ${tabs.map(t=>`<button onclick="invTab='${t}';loadInventory()" style="padding:10px 18px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:${invTab===t?'#0f766e':'#6b7280'};border-bottom:${invTab===t?'2px solid #0f766e':'2px solid transparent'};margin-bottom:-2px">${tabLabels[t]}</button>`).join('')}
+    </div>
+    <div id="invBody"><div style="text-align:center;padding:40px;color:#94a3b8">Loading...</div></div>`;
+
+  const ib = document.getElementById('invBody');
+  try {
+    if (invTab === 'stock') {
+      const products = await api('/api/admin/inventory/overview');
+      const totalVal = products.reduce((s,p)=>s+(parseFloat(p.cost_price||0)*parseInt(p.stock||0)),0);
+      ib.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+          <div class="stat-card"><div class="label">Total Products</div><div class="value">${products.length}</div></div>
+          <div class="stat-card"><div class="label">Low Stock</div><div class="value" style="color:#f59e0b">${products.filter(p=>parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5)).length}</div></div>
+          <div class="stat-card"><div class="label">Inventory Value</div><div class="value">TK ${Math.round(totalVal).toLocaleString()}</div></div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Price</th><th>Cost</th><th>Stock</th><th>Update</th></tr></thead><tbody>
+          ${products.map(p=>{
+            const low = parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5);
+            return `<tr>
+              <td>${p.name}</td>
+              <td style="color:#6b7280;font-size:12px">${p.sku||'-'}</td>
+              <td>${p.category||'-'}</td>
+              <td>TK ${p.price}</td>
+              <td>TK ${p.cost_price||0}</td>
+              <td style="font-weight:700;color:${low?'#dc2626':p.stock>20?'#16a34a':'#f59e0b'}">${p.stock??0}${low?' ⚠️':''}</td>
+              <td><div style="display:flex;gap:4px;align-items:center">
+                <input id="stk_${p.id}" type="number" value="${p.stock??0}" style="width:70px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px">
+                <button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">Save</button>
+              </div></td>
+            </tr>`;
+          }).join('')}
+          </tbody></table>
+        </div>`;
+
+    } else if (invTab === 'lowstock') {
+      const products = await api('/api/admin/inventory/overview');
+      const low = products.filter(p=>parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5));
+      ib.innerHTML = low.length===0
+        ? `<div style="text-align:center;padding:60px;color:#16a34a;font-size:18px">✅ সব পণ্যের stock ঠিক আছে</div>`
+        : `<div class="table-wrap">
+            <table><thead><tr><th>Product</th><th>Current Stock</th><th>Alert Level</th><th>Status</th><th>Update</th></tr></thead><tbody>
+            ${low.map(p=>`<tr>
+              <td><strong>${p.name}</strong></td>
+              <td style="font-weight:700;color:${p.stock===0?'#dc2626':'#f59e0b'}">${p.stock??0}</td>
+              <td>${p.low_stock_alert||5}</td>
+              <td><span style="padding:3px 10px;border-radius:20px;font-size:12px;background:${p.stock===0?'#fee2e2':'#fef3c7'};color:${p.stock===0?'#dc2626':'#92400e'}">${p.stock===0?'Out of Stock':'Low Stock'}</span></td>
+              <td><div style="display:flex;gap:4px"><input id="stk_${p.id}" type="number" value="${p.stock??0}" style="width:70px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px"><button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">Save</button></div></td>
+            </tr>`).join('')}
+            </tbody></table>
+          </div>`;
+
+    } else if (invTab === 'suppliers') {
+      const suppliers = await api('/api/admin/suppliers');
+      ib.innerHTML = `
+        <div style="margin-bottom:16px">
+          <button class="btn btn-primary" onclick="showAddSupplier()">+ নতুন Supplier</button>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Address</th><th>Notes</th><th>Action</th></tr></thead><tbody>
+          ${suppliers.length===0?'<tr><td colspan="6" style="text-align:center;color:#999">কোনো supplier নেই</td></tr>':
+            suppliers.map(s=>`<tr>
+              <td><strong>${s.name}</strong></td>
+              <td>${s.phone||'-'}</td>
+              <td>${s.email||'-'}</td>
+              <td>${s.address||'-'}</td>
+              <td>${s.notes||'-'}</td>
+              <td><button class="btn btn-sm btn-danger" onclick="deleteSupplier(${s.id},'${s.name.replace(/'/g,"\\'")}')">Delete</button></td>
+            </tr>`).join('')}
+          </tbody></table>
+        </div>`;
+
+    } else if (invTab === 'purchases') {
+      const [purchases, products, suppliers] = await Promise.all([
+        api('/api/admin/purchases'),
+        api('/api/admin/inventory/overview'),
+        api('/api/admin/suppliers'),
+      ]);
+      const totalSpend = purchases.reduce((s,p)=>s+parseFloat(p.total_cost||0),0);
+      ib.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div class="stat-card" style="min-width:200px"><div class="label">Total Purchase Cost</div><div class="value" style="color:#dc2626">TK ${Math.round(totalSpend).toLocaleString()}</div></div>
+          <button class="btn btn-primary" onclick="showAddPurchase()">+ নতুন Purchase</button>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Date</th><th>Product</th><th>Supplier</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th>Notes</th><th>Action</th></tr></thead><tbody>
+          ${purchases.length===0?'<tr><td colspan="8" style="text-align:center;color:#999">কোনো purchase নেই</td></tr>':
+            purchases.map(p=>`<tr>
+              <td style="white-space:nowrap">${p.purchase_date?.slice(0,10)||'-'}</td>
+              <td>${p.product_name}</td>
+              <td>${p.supplier||p.supplier_name||'-'}</td>
+              <td><strong>${p.quantity}</strong></td>
+              <td>TK ${p.cost_per_unit}</td>
+              <td style="font-weight:700">TK ${Math.round(p.total_cost).toLocaleString()}</td>
+              <td>${p.notes||'-'}</td>
+              <td><button class="btn btn-sm btn-danger" onclick="deletePurchase(${p.id})">Delete</button></td>
+            </tr>`).join('')}
+          </tbody></table>
+        </div>`;
+      window._invProducts = products;
+      window._invSuppliers = suppliers;
+    }
+  } catch(e) { ib.innerHTML = `<p style="color:red;padding:20px">Error: ${e.message}</p>`; }
+}
+
+async function updateStock(productId) {
+  const val = document.getElementById('stk_'+productId)?.value;
+  if (val === undefined) return;
+  try {
+    await api('/api/admin/inventory/stock/'+productId, { method:'PATCH', body: JSON.stringify({stock:parseInt(val)}) });
+    toast('Stock updated');
+  } catch(e) { toast('Failed: '+e.message, 'error'); }
+}
+
+function showAddSupplier() {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:440px">
+    <div class="modal-header"><h2>নতুন Supplier</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">×</button></div>
+    <div style="padding:20px;display:grid;gap:12px">
+      <div><label style="font-size:13px;font-weight:600">Name *</label><input id="supName" class="form-input" style="width:100%;box-sizing:border-box" placeholder="Supplier name"></div>
+      <div><label style="font-size:13px;font-weight:600">Phone</label><input id="supPhone" class="form-input" style="width:100%;box-sizing:border-box" placeholder="01XXXXXXXXX"></div>
+      <div><label style="font-size:13px;font-weight:600">Email</label><input id="supEmail" class="form-input" style="width:100%;box-sizing:border-box" placeholder="email@example.com"></div>
+      <div><label style="font-size:13px;font-weight:600">Address</label><input id="supAddress" class="form-input" style="width:100%;box-sizing:border-box" placeholder="Address"></div>
+      <div><label style="font-size:13px;font-weight:600">Notes</label><textarea id="supNotes" class="form-input" style="width:100%;box-sizing:border-box;height:60px" placeholder="Notes"></textarea></div>
+      <button class="btn btn-primary" onclick="saveSupplier(this)">Save</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveSupplier(btn) {
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await api('/api/admin/suppliers', { method:'POST', body: JSON.stringify({
+      name: document.getElementById('supName').value,
+      phone: document.getElementById('supPhone').value,
+      email: document.getElementById('supEmail').value,
+      address: document.getElementById('supAddress').value,
+      notes: document.getElementById('supNotes').value,
+    })});
+    document.querySelector('.admin-modal')?.remove();
+    toast('Supplier added');
+    loadInventory();
+  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='Save'; }
+}
+
+async function deleteSupplier(id, name) {
+  if (!confirm(`"${name}" delete করব?`)) return;
+  try {
+    await api('/api/admin/suppliers/'+id, {method:'DELETE'});
+    toast('Supplier deleted');
+    loadInventory();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+function showAddPurchase() {
+  const products = window._invProducts || [];
+  const suppliers = window._invSuppliers || [];
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:480px">
+    <div class="modal-header"><h2>নতুন Purchase Order</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">×</button></div>
+    <div style="padding:20px;display:grid;gap:12px">
+      <div><label style="font-size:13px;font-weight:600">Product *</label>
+        <select id="purProduct" class="form-input" style="width:100%;box-sizing:border-box" onchange="document.getElementById('purProductName').value=this.options[this.selectedIndex].text">
+          <option value="">— Select Product —</option>
+          ${products.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+          <option value="0">Other (type below)</option>
+        </select>
+      </div>
+      <div><label style="font-size:13px;font-weight:600">Product Name (if Other)</label><input id="purProductName" class="form-input" style="width:100%;box-sizing:border-box" placeholder="Product name"></div>
+      <div><label style="font-size:13px;font-weight:600">Supplier</label>
+        <select id="purSupplier" class="form-input" style="width:100%;box-sizing:border-box">
+          <option value="">— No Supplier —</option>
+          ${suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label style="font-size:13px;font-weight:600">Quantity *</label><input id="purQty" type="number" class="form-input" style="width:100%;box-sizing:border-box" placeholder="0" oninput="calcPurTotal()"></div>
+        <div><label style="font-size:13px;font-weight:600">Cost/Unit (TK) *</label><input id="purCost" type="number" class="form-input" style="width:100%;box-sizing:border-box" placeholder="0" oninput="calcPurTotal()"></div>
+      </div>
+      <div style="background:#f0fdf4;border-radius:8px;padding:10px;text-align:center;font-size:16px;font-weight:700" id="purTotal">Total: TK 0</div>
+      <div><label style="font-size:13px;font-weight:600">Purchase Date</label><input id="purDate" type="date" class="form-input" style="width:100%;box-sizing:border-box" value="${new Date().toISOString().split('T')[0]}"></div>
+      <div><label style="font-size:13px;font-weight:600">Notes</label><input id="purNotes" class="form-input" style="width:100%;box-sizing:border-box" placeholder="Notes"></div>
+      <button class="btn btn-primary" onclick="savePurchase(this)">Save</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function calcPurTotal() {
+  const q = parseFloat(document.getElementById('purQty')?.value||0);
+  const c = parseFloat(document.getElementById('purCost')?.value||0);
+  const el = document.getElementById('purTotal');
+  if (el) el.textContent = `Total: TK ${Math.round(q*c).toLocaleString()}`;
+}
+
+async function savePurchase(btn) {
+  btn.disabled=true; btn.textContent='Saving...';
+  const prodSel = document.getElementById('purProduct');
+  const prodId = prodSel?.value && prodSel.value !== '0' ? parseInt(prodSel.value) : null;
+  const prodName = document.getElementById('purProductName')?.value?.trim() || prodSel?.options[prodSel.selectedIndex]?.text || '';
+  try {
+    await api('/api/admin/purchases', { method:'POST', body: JSON.stringify({
+      supplier_id: document.getElementById('purSupplier')?.value || null,
+      product_id: prodId,
+      product_name: prodName,
+      quantity: document.getElementById('purQty')?.value,
+      cost_per_unit: document.getElementById('purCost')?.value,
+      purchase_date: document.getElementById('purDate')?.value,
+      notes: document.getElementById('purNotes')?.value,
+    })});
+    document.querySelector('.admin-modal')?.remove();
+    toast('Purchase added — stock updated');
+    loadInventory();
+  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='Save'; }
+}
+
+async function deletePurchase(id) {
+  if (!confirm('এই purchase delete করব? Stock কমে যাবে।')) return;
+  try {
+    await api('/api/admin/purchases/'+id, {method:'DELETE'});
+    toast('Purchase deleted');
+    loadInventory();
+  } catch(e) { toast(e.message,'error'); }
 }
 
 // ===== FRAUD PROTECTION =====
