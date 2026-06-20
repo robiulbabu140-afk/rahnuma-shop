@@ -1111,7 +1111,10 @@ app.post('/api/admin/customer/bdcourier-check', requireAdmin, async (req, res) =
       }, (r) => {
         let data = '';
         r.on('data', chunk => data += chunk);
-        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid response from BD Courier')); } });
+        r.on('end', () => {
+        console.log('BD Courier raw response (status '+r.statusCode+'):', data.substring(0,300));
+        try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid response from BD Courier: ' + data.substring(0,100))); }
+      });
       });
       request.on('error', reject);
       request.setTimeout(8000, () => { request.destroy(); reject(new Error('BD Courier API timeout')); });
