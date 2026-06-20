@@ -374,6 +374,12 @@ async function _getBdKey() {
   return _bdApiKey;
 }
 
+function _fetchWithTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(tid));
+}
+
 function _renderBdResult(modal, data, name, phone) {
   if (!data || data.error) {
     modal.querySelector('.admin-modal-content').innerHTML = `
@@ -399,9 +405,21 @@ function _renderBdResult(modal, data, name, phone) {
   const d = data.data || {};
   const summary = d.summary || {};
   const reports = data.reports || [];
+  const verdict = data.risk_verdict || {};
   const couriers = Object.entries(d).filter(([k]) => k !== 'summary');
-  const riskColor = summary.success_ratio >= 80 ? '#16a34a' : summary.success_ratio >= 60 ? '#d97706' : '#ef4444';
-  const riskLabel = summary.success_ratio >= 80 ? '✅ কম ঝুঁকি' : summary.success_ratio >= 60 ? '⚠️ মাঝারি ঝুঁকি' : '🚨 উচ্চ ঝুঁকি';
+
+  const verdictColors = { low_risk: '#16a34a', medium_risk: '#d97706', high_risk: '#ef4444' };
+  const verdictEmoji = { low_risk: '✅', medium_risk: '⚠️', high_risk: '🚨' };
+  const riskColor = verdictColors[verdict.level] || (summary.success_ratio >= 80 ? '#16a34a' : summary.success_ratio >= 60 ? '#d97706' : '#ef4444');
+  const riskEmoji = verdictEmoji[verdict.level] || (summary.success_ratio >= 80 ? '✅' : summary.success_ratio >= 60 ? '⚠️' : '🚨');
+  const riskLabel = verdict.label ? `${riskEmoji} ${verdict.label}` : `${riskEmoji} ${summary.success_ratio >= 80 ? 'কম ঝুঁকি' : summary.success_ratio >= 60 ? 'মাঝারি ঝুঁকি' : 'উচ্চ ঝুঁকি'}`;
+
+  const reasonsHtml = verdict.reasons && verdict.reasons.length ? `
+    <div style="margin-top:10px;background:rgba(0,0,0,.06);border-radius:8px;padding:8px 12px;text-align:left">
+      ${verdict.reasons.map(r => `<div style="font-size:12px;color:#374151;padding:2px 0">• ${r}</div>`).join('')}
+    </div>` : '';
+  const actionHtml = verdict.action ? `<p style="margin-top:8px;font-size:13px;font-weight:600;color:${riskColor}">${verdict.action}</p>` : '';
+
   const courierCards = couriers.map(([, c]) => {
     const ratio = c.success_ratio || 0;
     const bc = ratio >= 80 ? '#16a34a' : ratio >= 60 ? '#d97706' : '#ef4444';
@@ -420,6 +438,7 @@ function _renderBdResult(modal, data, name, phone) {
         <span>বাতিল: <strong style="color:#ef4444">${c.cancelled_parcel}</strong></span>
       </div></div>`;
   }).join('');
+
   const reportRows = reports.length ? reports.map(r => `
     <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -435,20 +454,21 @@ function _renderBdResult(modal, data, name, phone) {
       <h2 style="color:#fff">🔍 Customer Risk Check</h2>
       <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
     </div>
-    <div style="padding:20px">
-      <div style="background:#f0fdf4;border:2px solid ${riskColor};border-radius:12px;padding:16px;text-align:center;margin-bottom:20px">
-        <p style="font-size:22px;font-weight:800;color:${riskColor}">${riskLabel}</p>
-        <p style="color:#0f172a;font-size:15px;margin-top:4px">${name} — ${phone}</p>
-        <div style="display:flex;justify-content:center;gap:28px;margin-top:12px">
-          <div><div style="font-size:22px;font-weight:800;color:#0f172a">${summary.total_parcel||0}</div><div style="font-size:12px;color:#64748b">মোট পার্সেল</div></div>
-          <div><div style="font-size:22px;font-weight:800;color:#16a34a">${summary.success_parcel||0}</div><div style="font-size:12px;color:#64748b">সফল</div></div>
-          <div><div style="font-size:22px;font-weight:800;color:#ef4444">${summary.cancelled_parcel||0}</div><div style="font-size:12px;color:#64748b">বাতিল</div></div>
-          <div><div style="font-size:22px;font-weight:800;color:${riskColor}">${summary.success_ratio||0}%</div><div style="font-size:12px;color:#64748b">সাফল্য হার</div></div>
+    <div style="padding:20px;max-height:80vh;overflow-y:auto">
+      <div style="background:#f8fafc;border:2px solid ${riskColor};border-radius:12px;padding:16px;text-align:center;margin-bottom:16px">
+        <p style="font-size:22px;font-weight:800;color:${riskColor};margin:0">${riskLabel}</p>
+        <p style="color:#0f172a;font-size:14px;margin-top:4px">${name} — ${phone}</p>
+        ${actionHtml}${reasonsHtml}
+        <div style="display:flex;justify-content:center;gap:24px;margin-top:12px">
+          <div><div style="font-size:20px;font-weight:800;color:#0f172a">${summary.total_parcel||0}</div><div style="font-size:11px;color:#64748b">মোট</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:#16a34a">${summary.success_parcel||0}</div><div style="font-size:11px;color:#64748b">সফল</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:#ef4444">${summary.cancelled_parcel||0}</div><div style="font-size:11px;color:#64748b">বাতিল</div></div>
+          <div><div style="font-size:20px;font-weight:800;color:${riskColor}">${summary.success_ratio||0}%</div><div style="font-size:11px;color:#64748b">সাফল্য</div></div>
         </div>
       </div>
-      <h4 style="margin-bottom:12px;color:#334155">কুরিয়ার ভিত্তিক বিশ্লেষণ</h4>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">${courierCards}</div>
-      <h4 style="margin-bottom:12px;color:#334155">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
+      <h4 style="margin-bottom:10px;color:#334155;font-size:14px">কুরিয়ার ভিত্তিক বিশ্লেষণ</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">${courierCards}</div>
+      <h4 style="margin-bottom:10px;color:#334155;font-size:14px">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
       ${reportRows}
     </div>`;
 }
@@ -487,20 +507,18 @@ async function checkCustomerBdCourier(phone, name) {
     let data;
     try {
       const key = await _getBdKey();
-      const r = await fetch('https://api.bdcourier.com/courier-check', {
+      const r = await _fetchWithTimeout('https://api.bdcourier.com/courier-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ phone: cleanPhone }),
-        signal: AbortSignal.timeout(8000)
-      });
+        body: JSON.stringify({ phone: cleanPhone })
+      }, 12000);
       data = await r.json();
     } catch {
-      const r2 = await fetch('/api/admin/customer/bdcourier-check', {
+      const r2 = await _fetchWithTimeout('/api/admin/customer/bdcourier-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-        signal: AbortSignal.timeout(10000)
-      });
+        body: JSON.stringify({ phone })
+      }, 15000);
       data = await r2.json();
     }
 
