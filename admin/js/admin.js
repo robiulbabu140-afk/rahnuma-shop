@@ -27,6 +27,8 @@ function loadPage(page) {
   if (loaders[page]) loaders[page]();
 
   document.getElementById('sidebar').classList.remove('open');
+  const ov = document.getElementById('sidebarOverlay');
+  if (ov) ov.classList.remove('show');
 }
 
 function toast(msg, type) {
@@ -89,18 +91,18 @@ async function loadDashboard() {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="dash-grid-2">
       <div class="table-wrap">
         <div class="table-header"><h2>Recent Orders</h2></div>
-        <table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead><tbody>
+        <div class="table-responsive"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead><tbody>
         ${d.recentOrders.map(o => `<tr style="cursor:pointer" onclick="loadPage('orders');setTimeout(()=>viewOrder(${o.order_number.replace(/[^0-9A-Z]/g,'')}),500)">
           <td>${o.order_number}</td><td>${o.customer_name}</td><td>TK ${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td>
         </tr>`).join('')}
-        </tbody></table>
+        </tbody></table></div>
       </div>
       <div class="table-wrap">
         <div class="table-header"><h2>Low Stock Alert</h2></div>
-        <div class="low-stock-list" style="padding:0 16px 16px">
+        <div class="low-stock-list">
           ${d.lowStockProducts.length === 0 ? '<p style="color:#999;padding:20px 0;text-align:center">All stock is fine</p>' :
             d.lowStockProducts.map(p => `<div class="low-stock-item"><span>${p.name_bn || p.name}</span><span class="stock">${p.stock} remaining</span></div>`).join('')}
         </div>
@@ -171,7 +173,7 @@ async function fetchOrders() {
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table></div>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
     pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
@@ -631,7 +633,7 @@ async function fetchProducts() {
     const search = document.getElementById('prodSearch')?.value || '';
     const data = await api(`/api/admin/products?page=${productsPage}&search=${search}`);
 
-    document.getElementById('productsTable').innerHTML = `<table><thead><tr><th>Image</th><th>Product</th><th>Price</th><th>Stock</th><th>Category</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    document.getElementById('productsTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Image</th><th>Product</th><th>Price</th><th>Stock</th><th>Category</th><th>Status</th><th>Action</th></tr></thead><tbody>
     ${data.products.map(p => `<tr>
       <td>${p.image ? `<img src="${p.image}" style="width:40px;height:40px;border-radius:6px;object-fit:cover">` : '📦'}</td>
       <td><strong>${p.name_bn || p.name}</strong><br><small style="color:#999">SKU: ${p.sku||'-'}</small></td>
@@ -643,7 +645,7 @@ async function fetchProducts() {
         <button class="btn btn-sm btn-ghost" onclick="showProductForm(${p.id})">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteProduct(${p.id})">✕</button>
       </td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`).join('')}</tbody></table></div>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="productsPage--;fetchProducts()">← Prev</button><span>Page ${data.page}/${data.pages||1}</span><button ${data.page>=data.pages?'disabled':''} onclick="productsPage++;fetchProducts()">Next →</button>`;
     document.getElementById('productsPagination').innerHTML = pagHtml;
@@ -713,7 +715,7 @@ async function loadVariants(productId) {
       el.innerHTML = '<p style="color:#999;font-size:13px">No variants yet. Add variants like Size, Color, etc.</p>';
       return;
     }
-    el.innerHTML = `<table><thead><tr><th>Name</th><th>Value</th><th>Price +/-</th><th>Stock</th><th>SKU</th><th>Action</th></tr></thead><tbody>
+    el.innerHTML = `<div class="table-responsive"><table><thead><tr><th>Name</th><th>Value</th><th>Price +/-</th><th>Stock</th><th>SKU</th><th>Action</th></tr></thead><tbody>
     ${variants.map(v => `<tr>
       <td><strong>${v.name}</strong></td>
       <td>${v.value}</td>
@@ -724,7 +726,7 @@ async function loadVariants(productId) {
         <button class="btn btn-sm btn-ghost" onclick="editVariant(${v.id}, ${productId})">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="if(confirm('Delete variant?'))deleteVariant(${v.id}, ${productId})">✕</button>
       </td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`).join('')}</tbody></table></div>`;
   } catch(e) { el.innerHTML = '<p style="color:red">Failed to load variants</p>'; }
 }
 
@@ -830,10 +832,10 @@ async function loadCategories() {
     const cats = await api('/api/admin/categories');
     c.innerHTML = `<div class="table-wrap">
       <div class="table-header"><h2>Categories</h2><button class="btn btn-primary" onclick="showCategoryForm()">+ New Category</button></div>
-      <table><thead><tr><th>Name</th><th>Name (Bengali)</th><th>Slug</th><th>Active</th><th>Action</th></tr></thead><tbody>
+      <div class="table-responsive"><table><thead><tr><th>Name</th><th>Name (Bengali)</th><th>Slug</th><th>Active</th><th>Action</th></tr></thead><tbody>
       ${cats.map(c => `<tr><td>${c.name}</td><td>${c.name_bn||'-'}</td><td>${c.slug}</td><td>${c.is_active?'Yes':'No'}</td>
         <td class="table-actions"><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteCategory(${c.id})">✕</button></td></tr>`).join('')}
-      </tbody></table></div>`;
+      </tbody></table></div></div>`;
   } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
@@ -883,13 +885,13 @@ async function fetchCustomers() {
   try {
     const search = document.getElementById('custSearch')?.value || '';
     const data = await api(`/api/admin/customers?page=${customersPage}&search=${search}`);
-    document.getElementById('customersTable').innerHTML = `<table><thead><tr><th>Name</th><th>Phone</th><th>Address</th><th>Orders</th><th>Total Spent</th><th>Fraud Score</th><th>Action</th></tr></thead><tbody>
+    document.getElementById('customersTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Name</th><th>Phone</th><th>Address</th><th>Orders</th><th>Total Spent</th><th>Fraud Score</th><th>Action</th></tr></thead><tbody>
     ${data.customers.map(c => `<tr>
       <td><strong>${c.name}</strong>${c.is_blocked?'<span style="color:red;font-size:11px"> (Blocked)</span>':''}</td>
       <td>${c.phone}</td><td>${c.address||'-'}</td><td>${c.total_orders}</td><td>TK ${c.total_spent}</td>
       <td style="color:${c.fraud_score>50?'#dc2626':c.fraud_score>20?'#f59e0b':'#16a34a'}">${c.fraud_score}</td>
       <td class="table-actions"><button class="btn btn-sm btn-ghost" onclick="viewCustomer(${c.id})">Details</button></td>
-    </tr>`).join('')}</tbody></table>`;
+    </tr>`).join('')}</tbody></table></div>`;
   } catch(e) {}
 }
 
@@ -941,13 +943,13 @@ async function loadCoupons() {
     const coupons = await api('/api/admin/coupons');
     c.innerHTML = `<div class="table-wrap">
       <div class="table-header"><h2>Coupons</h2><button class="btn btn-primary" onclick="showCouponForm()">+ New Coupon</button></div>
-      <table><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Minimum</th><th>Usage</th><th>Expires</th><th>Action</th></tr></thead><tbody>
+      <div class="table-responsive"><table><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Minimum</th><th>Usage</th><th>Expires</th><th>Action</th></tr></thead><tbody>
       ${coupons.map(cp => `<tr>
         <td><strong>${cp.code}</strong></td><td>${cp.type==='percent'?'Percentage':'Fixed'}</td>
         <td>${cp.type==='percent'?cp.value+'%':'TK '+cp.value}</td><td>TK ${cp.min_order}</td>
         <td>${cp.used_count}${cp.max_uses?'/'+cp.max_uses:''}</td><td>${cp.expires_at||'No limit'}</td>
         <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteCoupon(${cp.id})">✕</button></td>
-      </tr>`).join('')}</tbody></table></div>`;
+      </tr>`).join('')}</tbody></table></div></div>`;
   } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
@@ -1006,10 +1008,10 @@ async function loadExpenses() {
         <button class="btn btn-primary" onclick="showExpenseForm()">+ Add Expense</button>
       </div>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Description</th><th>Action</th></tr></thead><tbody>
+    <div class="table-wrap"><div class="table-responsive"><table><thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Description</th><th>Action</th></tr></thead><tbody>
     ${data.expenses.map(e => `<tr><td>${e.date}</td><td>${e.category}</td><td>TK ${e.amount}</td><td>${e.description||'-'}</td>
       <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteExpense(${e.id})">✕</button></td></tr>`).join('')}
-    </tbody></table></div>`;
+    </tbody></table></div></div>`;
   } catch(e) { c.innerHTML = '<p style="color:red">Load failed</p>'; }
 }
 
@@ -1574,7 +1576,7 @@ async function fetchFraudBlocked() {
     const pages = data.pages || 1;
     const page = data.page || 1;
 
-    document.getElementById('fraudBlockedTable').innerHTML = `<table><thead><tr><th>Type</th><th>Value</th><th>Reason</th><th>Duration</th><th>Expires</th><th>Created</th><th>Action</th></tr></thead><tbody>
+    document.getElementById('fraudBlockedTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Type</th><th>Value</th><th>Reason</th><th>Duration</th><th>Expires</th><th>Created</th><th>Action</th></tr></thead><tbody>
     ${entries.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">No blocked entries</td></tr>' :
       entries.map(b => `<tr>
         <td><span class="fraud-type-badge fraud-type-${b.type}">${b.type}</span></td>
@@ -1585,7 +1587,7 @@ async function fetchFraudBlocked() {
         <td>${b.created_at ? new Date(b.created_at).toLocaleString('en-US') : '-'}</td>
         <td class="table-actions"><button class="btn btn-sm btn-danger" onclick="if(confirm('Remove this block?'))removeFraudBlock(${b.id})">Remove</button></td>
       </tr>`).join('')}
-    </tbody></table>`;
+    </tbody></table></div>`;
 
     let pagHtml = `<button ${page<=1?'disabled':''} onclick="fraudBlockedPage--;fetchFraudBlocked()">← Prev</button>`;
     pagHtml += `<span>Page ${page} / ${pages}</span>`;
@@ -1685,7 +1687,7 @@ async function fetchFraudAttempts() {
     const pages = data.pages || 1;
     const page = data.page || 1;
 
-    document.getElementById('fraudAttemptsTable').innerHTML = `<table><thead><tr><th>Date</th><th>Reason</th><th>Phone</th><th>IP Address</th><th>Details</th></tr></thead><tbody>
+    document.getElementById('fraudAttemptsTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Date</th><th>Reason</th><th>Phone</th><th>IP Address</th><th>Details</th></tr></thead><tbody>
     ${attempts.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px">No block attempts recorded</td></tr>' :
       attempts.map(a => `<tr>
         <td>${a.created_at ? new Date(a.created_at).toLocaleString('en-US') : '-'}</td>
@@ -1694,7 +1696,7 @@ async function fetchFraudAttempts() {
         <td><code>${a.ip || '-'}</code></td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.details || '').replace(/"/g, '&quot;')}">${a.details || '-'}</td>
       </tr>`).join('')}
-    </tbody></table>`;
+    </tbody></table></div>`;
 
     let pagHtml = `<button ${page<=1?'disabled':''} onclick="fraudAttemptsPage--;fetchFraudAttempts()">← Prev</button>`;
     pagHtml += `<span>Page ${page} / ${pages}</span>`;
@@ -2044,7 +2046,7 @@ async function fetchPages() {
     const data = await api('/api/admin/pages?' + params);
     const pages = data.pages || [];
 
-    document.getElementById('pagesTable').innerHTML = `<table><thead><tr><th>Title</th><th>URL Slug</th><th>Status</th><th>Views</th><th>Updated</th><th>Actions</th></tr></thead><tbody>
+    document.getElementById('pagesTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Title</th><th>URL Slug</th><th>Status</th><th>Views</th><th>Updated</th><th>Actions</th></tr></thead><tbody>
     ${pages.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px">No pages found</td></tr>' :
       pages.map(p => `<tr>
         <td><strong>${escapeHtml(p.title)}</strong></td>
@@ -2060,7 +2062,7 @@ async function fetchPages() {
             `<button class="btn btn-sm btn-danger" onclick="trashPage(${p.id})">Trash</button>`}
         </td>
       </tr>`).join('')}
-    </tbody></table>`;
+    </tbody></table></div>`;
 
     const totalPages = data.pages ? Math.ceil((data.total || 0) / 20) : 1;
     let pagHtml = `<button ${pagesPage<=1?'disabled':''} onclick="pagesPage--;fetchPages()">← Prev</button>`;
