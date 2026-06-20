@@ -999,6 +999,42 @@ app.delete('/api/admin/orders/:id', requireAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ===== BD COURIER - CUSTOMER RISK CHECK =====
+app.post('/api/admin/customer/bdcourier-check', requireAdmin, async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const settings = await getSettings();
+    const apiKey = settings.bdcourier_api_key;
+    if (!apiKey) return res.status(400).json({ error: 'BD Courier API key not configured in Settings' });
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const postData = JSON.stringify({ phone: cleanPhone });
+
+    const result = await new Promise((resolve, reject) => {
+      const request = https.request({
+        hostname: 'api.bdcourier.com',
+        path: '/courier-check',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      }, (r) => {
+        let data = '';
+        r.on('data', chunk => data += chunk);
+        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid response from BD Courier')); } });
+      });
+      request.on('error', reject);
+      request.write(postData);
+      request.end();
+    });
+
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== STEADFAST WEBHOOK =====
 app.post('/api/webhook/steadfast', async (req, res) => {
   try {
