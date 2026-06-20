@@ -1270,48 +1270,115 @@ async function loadReports() {
 }
 
 // ===== INVENTORY =====
-let invTab = 'stock';
+let invTab = 'dashboard';
 
 async function loadInventory() {
   const c = document.getElementById('pageContent');
-  const tabs = ['stock','lowstock','suppliers','purchases'];
-  const tabLabels = {stock:'📦 Stock Overview',lowstock:'⚠️ Low Stock',suppliers:'🏢 Suppliers',purchases:'🛒 Purchase Orders'};
+  const tabs = ['dashboard','stock','lowstock','damaged','suppliers','purchases'];
+  const tabLabels = {'dashboard':'📊 Dashboard','stock':'📦 সব পণ্য','lowstock':'⚠️ কম Stock','damaged':'🔴 নষ্ট পণ্য','suppliers':'🏢 Suppliers','purchases':'🛒 Purchase Orders'};
 
   c.innerHTML = `
     <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e5e7eb;flex-wrap:wrap">
-      ${tabs.map(t=>`<button onclick="invTab='${t}';loadInventory()" style="padding:10px 18px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:${invTab===t?'#0f766e':'#6b7280'};border-bottom:${invTab===t?'2px solid #0f766e':'2px solid transparent'};margin-bottom:-2px">${tabLabels[t]}</button>`).join('')}
+      ${tabs.map(t=>`<button onclick="invTab='${t}';loadInventory()" style="padding:9px 14px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${invTab===t?'#1a4a2e':'#6b7280'};border-bottom:${invTab===t?'2px solid #1a4a2e':'2px solid transparent'};margin-bottom:-2px;white-space:nowrap">${tabLabels[t]}</button>`).join('')}
     </div>
     <div id="invBody"><div style="text-align:center;padding:40px;color:#94a3b8">Loading...</div></div>`;
 
   const ib = document.getElementById('invBody');
   try {
-    if (invTab === 'stock') {
-      const products = await api('/api/admin/inventory/overview');
-      const totalVal = products.reduce((s,p)=>s+(parseFloat(p.cost_price||0)*parseInt(p.stock||0)),0);
+    if (invTab === 'dashboard') {
+      const [stats, products] = await Promise.all([
+        api('/api/admin/inventory/stats'),
+        api('/api/admin/inventory/overview')
+      ]);
+      const needReorder = products.filter(p=>parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5) && parseInt(p.stock||0)>=0);
       ib.innerHTML = `
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
-          <div class="stat-card"><div class="label">Total Products</div><div class="value">${products.length}</div></div>
-          <div class="stat-card"><div class="label">Low Stock</div><div class="value" style="color:#f59e0b">${products.filter(p=>parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5)).length}</div></div>
-          <div class="stat-card"><div class="label">Inventory Value</div><div class="value">TK ${Math.round(totalVal).toLocaleString()}</div></div>
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+          <div class="stat-card highlight"><div class="label">মোট পণ্য</div><div class="value">${stats.totalProducts}</div><div class="sub">categories: ${stats.byCategory.length}</div></div>
+          <div class="stat-card highlight"><div class="label">মোট Stock</div><div class="value">${stats.totalStock.toLocaleString()}</div><div class="sub">units</div></div>
+          <div class="stat-card"><div class="label">Stock মূল্য (Cost)</div><div class="value" style="font-size:16px">TK ${stats.stockValue.toLocaleString()}</div><div class="sub">Sale: TK ${stats.saleValue.toLocaleString()}</div></div>
+          <div class="stat-card"><div class="label">কম Stock</div><div class="value" style="color:#f59e0b">${stats.lowStock}</div><div class="sub">পণ্য কিনতে হবে</div></div>
+          <div class="stat-card"><div class="label">শেষ হয়ে গেছে</div><div class="value" style="color:#dc2626">${stats.outOfStock}</div><div class="sub">out of stock</div></div>
+          <div class="stat-card"><div class="label">নষ্ট পণ্য</div><div class="value" style="color:#7c3aed">${stats.totalDamaged}</div><div class="sub">damaged units</div></div>
         </div>
+
+        <div class="dash-grid-2" style="margin-bottom:16px">
+          <div class="table-wrap">
+            <div class="table-header"><h2>📦 কিনতে হবে (Reorder List)</h2></div>
+            ${needReorder.length===0
+              ? '<p style="text-align:center;padding:20px;color:#16a34a">✅ সব পণ্যের stock ঠিক আছে</p>'
+              : `<div class="table-responsive"><table><thead><tr><th>পণ্য</th><th>Stock</th><th>Alert</th><th>Status</th></tr></thead><tbody>
+                ${needReorder.map(p=>`<tr>
+                  <td><strong>${p.name_bn||p.name}</strong></td>
+                  <td style="color:${parseInt(p.stock)===0?'#dc2626':'#f59e0b'};font-weight:700">${p.stock}</td>
+                  <td>${p.low_stock_alert||5}</td>
+                  <td><span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${parseInt(p.stock)===0?'#fee2e2':'#fef3c7'};color:${parseInt(p.stock)===0?'#dc2626':'#92400e'}">${parseInt(p.stock)===0?'শেষ হয়েছে':'কম আছে'}</span></td>
+                </tr>`).join('')}
+              </tbody></table></div>`}
+          </div>
+          <div class="table-wrap">
+            <div class="table-header"><h2>📊 Category অনুযায়ী Stock</h2></div>
+            <div style="padding:12px">
+              ${stats.byCategory.map(c=>{
+                const max = stats.byCategory[0]?.stock||1;
+                const pct = Math.round((c.stock/max)*100);
+                return `<div style="margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px">
+                    <span>${c.name}</span><strong>${c.stock} units</strong>
+                  </div>
+                  <div style="background:#e5e7eb;border-radius:99px;height:7px">
+                    <div style="width:${pct}%;background:#1a4a2e;border-radius:99px;height:100%"></div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
         <div class="table-wrap">
-          <table><thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Price</th><th>Cost</th><th>Stock</th><th>Update</th></tr></thead><tbody>
+          <div class="table-header"><h2>🔴 নষ্ট পণ্যের তালিকা</h2></div>
+          ${products.filter(p=>parseInt(p.damaged_stock||0)>0).length===0
+            ? '<p style="text-align:center;padding:20px;color:#16a34a">✅ কোনো নষ্ট পণ্য নেই</p>'
+            : `<div class="table-responsive"><table><thead><tr><th>পণ্য</th><th>নষ্ট</th><th>বর্তমান Stock</th></tr></thead><tbody>
+              ${products.filter(p=>parseInt(p.damaged_stock||0)>0).map(p=>`<tr>
+                <td>${p.name_bn||p.name}</td>
+                <td style="color:#7c3aed;font-weight:700">${p.damaged_stock}</td>
+                <td>${p.stock}</td>
+              </tr>`).join('')}
+            </tbody></table></div>`}
+        </div>`;
+
+    } else if (invTab === 'stock') {
+      const products = await api('/api/admin/inventory/overview');
+      ib.innerHTML = `
+        <div class="table-wrap">
+          <div class="table-header">
+            <h2>সব পণ্যের Stock</h2>
+            <input type="text" placeholder="পণ্য খুঁজুন..." oninput="filterInvTable(this.value)" style="padding:7px 12px;border:1.5px solid #e0d9cc;border-radius:8px;font-size:13px;min-width:180px">
+          </div>
+          <div class="table-responsive"><table id="invStockTable"><thead><tr><th>পণ্য</th><th>SKU</th><th>Category</th><th>দাম</th><th>Cost</th><th>Stock</th><th>Alert</th><th>নষ্ট</th><th>Update</th></tr></thead><tbody>
           ${products.map(p=>{
-            const low = parseInt(p.stock||0)<=parseInt(p.low_stock_alert||5);
-            return `<tr>
-              <td>${p.name}</td>
-              <td style="color:#6b7280;font-size:12px">${p.sku||'-'}</td>
+            const s=parseInt(p.stock||0); const low=s<=parseInt(p.low_stock_alert||5);
+            const sc=s===0?'#dc2626':low?'#f59e0b':'#16a34a';
+            return `<tr data-name="${(p.name_bn||p.name).toLowerCase()}">
+              <td><strong>${p.name_bn||p.name}</strong><br><small style="color:#999">${p.name}</small></td>
+              <td style="font-size:12px;color:#999">${p.sku||'-'}</td>
               <td>${p.category||'-'}</td>
-              <td>TK ${p.price}</td>
+              <td>TK ${p.sale_price||p.price}</td>
               <td>TK ${p.cost_price||0}</td>
-              <td style="font-weight:700;color:${low?'#dc2626':p.stock>20?'#16a34a':'#f59e0b'}">${p.stock??0}${low?' ⚠️':''}</td>
-              <td><div style="display:flex;gap:4px;align-items:center">
-                <input id="stk_${p.id}" type="number" value="${p.stock??0}" style="width:70px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px">
-                <button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">Save</button>
-              </div></td>
+              <td style="font-weight:700;color:${sc}">${s} ${s===0?'❌':low?'⚠️':'✅'}</td>
+              <td>${p.low_stock_alert||5}</td>
+              <td style="color:#7c3aed">${p.damaged_stock||0}</td>
+              <td>
+                <div style="display:flex;gap:4px;flex-wrap:wrap">
+                  <input id="stk_${p.id}" type="number" value="${s}" style="width:65px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px">
+                  <button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">✓</button>
+                  <input id="dmg_${p.id}" type="number" value="${p.damaged_stock||0}" style="width:55px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px" title="নষ্ট পণ্য">
+                  <button class="btn btn-sm" style="background:#7c3aed;color:#fff;padding:4px 8px" onclick="updateDamaged(${p.id})" title="নষ্ট update">🔴</button>
+                </div>
+              </td>
             </tr>`;
           }).join('')}
-          </tbody></table>
+          </tbody></table></div>
         </div>`;
 
     } else if (invTab === 'lowstock') {
@@ -1320,16 +1387,44 @@ async function loadInventory() {
       ib.innerHTML = low.length===0
         ? `<div style="text-align:center;padding:60px;color:#16a34a;font-size:18px">✅ সব পণ্যের stock ঠিক আছে</div>`
         : `<div class="table-wrap">
-            <table><thead><tr><th>Product</th><th>Current Stock</th><th>Alert Level</th><th>Status</th><th>Update</th></tr></thead><tbody>
-            ${low.map(p=>`<tr>
-              <td><strong>${p.name}</strong></td>
-              <td style="font-weight:700;color:${p.stock===0?'#dc2626':'#f59e0b'}">${p.stock??0}</td>
-              <td>${p.low_stock_alert||5}</td>
-              <td><span style="padding:3px 10px;border-radius:20px;font-size:12px;background:${p.stock===0?'#fee2e2':'#fef3c7'};color:${p.stock===0?'#dc2626':'#92400e'}">${p.stock===0?'Out of Stock':'Low Stock'}</span></td>
-              <td><div style="display:flex;gap:4px"><input id="stk_${p.id}" type="number" value="${p.stock??0}" style="width:70px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px"><button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">Save</button></div></td>
-            </tr>`).join('')}
-            </tbody></table>
+            <div class="table-header"><h2>⚠️ কম Stock — কিনতে হবে</h2><span style="color:#f59e0b;font-size:13px">${low.length}টি পণ্য</span></div>
+            <div class="table-responsive"><table><thead><tr><th>পণ্য</th><th>Category</th><th>বর্তমান Stock</th><th>Alert Level</th><th>কতটুকু লাগবে</th><th>Status</th><th>Update</th></tr></thead><tbody>
+            ${low.sort((a,b)=>parseInt(a.stock||0)-parseInt(b.stock||0)).map(p=>{
+              const s=parseInt(p.stock||0); const al=parseInt(p.low_stock_alert||5);
+              return `<tr style="background:${s===0?'#fff5f5':'#fffbeb'}">
+                <td><strong>${p.name_bn||p.name}</strong></td>
+                <td>${p.category||'-'}</td>
+                <td style="font-weight:700;color:${s===0?'#dc2626':'#f59e0b'};font-size:18px">${s}</td>
+                <td style="color:#6b7280">${al}</td>
+                <td style="color:#1a4a2e;font-weight:700">কমপক্ষে ${Math.max(al*2-s,al)} টা</td>
+                <td><span style="font-size:11px;padding:3px 10px;border-radius:20px;background:${s===0?'#fee2e2':'#fef3c7'};color:${s===0?'#dc2626':'#92400e'};font-weight:700">${s===0?'❌ শেষ হয়েছে':'⚠️ কম আছে'}</span></td>
+                <td><div style="display:flex;gap:4px"><input id="stk_${p.id}" type="number" value="${s}" style="width:65px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px"><button class="btn btn-sm btn-primary" onclick="updateStock(${p.id})">✓ Save</button></div></td>
+              </tr>`;
+            }).join('')}
+            </tbody></table></div>
           </div>`;
+
+    } else if (invTab === 'damaged') {
+      const products = await api('/api/admin/inventory/overview');
+      ib.innerHTML = `
+        <div class="table-wrap">
+          <div class="table-header"><h2>🔴 নষ্ট পণ্য ট্র্যাকিং</h2><span style="font-size:13px;color:#6b7280">Damaged stock রেকর্ড করুন</span></div>
+          <div class="table-responsive"><table><thead><tr><th>পণ্য</th><th>বর্তমান Stock</th><th>নষ্ট পরিমাণ</th><th>ব্যবহারযোগ্য Stock</th><th>Update</th></tr></thead><tbody>
+          ${products.map(p=>{
+            const usable = parseInt(p.stock||0) - parseInt(p.damaged_stock||0);
+            return `<tr>
+              <td><strong>${p.name_bn||p.name}</strong><br><small style="color:#999">${p.category||'-'}</small></td>
+              <td>${p.stock||0}</td>
+              <td style="color:#7c3aed;font-weight:${parseInt(p.damaged_stock||0)>0?'700':'400'}">${p.damaged_stock||0}</td>
+              <td style="font-weight:700;color:${usable<=0?'#dc2626':'#16a34a'}">${Math.max(0,usable)}</td>
+              <td><div style="display:flex;gap:4px;align-items:center">
+                <input id="dmg_${p.id}" type="number" value="${p.damaged_stock||0}" min="0" style="width:70px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px">
+                <button class="btn btn-sm" style="background:#7c3aed;color:#fff" onclick="updateDamaged(${p.id})">Save</button>
+              </div></td>
+            </tr>`;
+          }).join('')}
+          </tbody></table></div>
+        </div>`;
 
     } else if (invTab === 'suppliers') {
       const suppliers = await api('/api/admin/suppliers');
@@ -1389,8 +1484,24 @@ async function updateStock(productId) {
   if (val === undefined) return;
   try {
     await api('/api/admin/inventory/stock/'+productId, { method:'PATCH', body: JSON.stringify({stock:parseInt(val)}) });
-    toast('Stock updated');
+    toast('Stock updated ✓');
   } catch(e) { toast('Failed: '+e.message, 'error'); }
+}
+
+async function updateDamaged(productId) {
+  const val = document.getElementById('dmg_'+productId)?.value;
+  if (val === undefined) return;
+  try {
+    await api('/api/admin/inventory/damaged/'+productId, { method:'PATCH', body: JSON.stringify({damaged_stock:parseInt(val)||0}) });
+    toast('Damaged stock updated ✓');
+  } catch(e) { toast('Failed: '+e.message, 'error'); }
+}
+
+function filterInvTable(q) {
+  const rows = document.querySelectorAll('#invStockTable tbody tr');
+  rows.forEach(r => {
+    r.style.display = r.dataset.name?.includes(q.toLowerCase()) ? '' : 'none';
+  });
 }
 
 function showAddSupplier() {
