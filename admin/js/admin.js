@@ -161,8 +161,9 @@ async function fetchOrders() {
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td style="white-space:nowrap">
-        <span style="font-weight:700;color:${rateColor}">${rate}%</span>
-        <button class="btn btn-sm btn-ghost" style="margin-left:4px;padding:2px 8px;font-size:11px" onclick="showCourierStats()">Check</button>
+        ${o.consignment_id
+          ? `<button class="btn btn-sm" style="background:#0e7490;color:#fff;padding:3px 10px;font-size:12px" onclick="checkCourierStatus(${o.id},'${o.consignment_id}','${o.courier||''}')">📦 Track</button>`
+          : `<span style="color:#cbd5e1;font-size:12px">—</span>`}
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
@@ -171,7 +172,7 @@ async function fetchOrders() {
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('ordersTable').innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Track</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
     pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
@@ -317,6 +318,59 @@ async function updateOrderStatus(id) {
     toast('Order updated');
     fetchOrders();
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function checkCourierStatus(orderId, consignmentId, courier) {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:480px">
+    <div class="modal-header" style="background:linear-gradient(135deg,#0e7490,#0f766e)">
+      <h2 style="color:#fff">📦 Courier Tracking</h2>
+      <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <div style="padding:24px;text-align:center">
+      <div style="width:36px;height:36px;border:4px solid #e2e8f0;border-top-color:#0e7490;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto"></div>
+      <p style="color:#94a3b8;margin-top:12px;font-size:13px">Checking status from courier API...</p>
+    </div>
+  </div>`;
+  if (!document.querySelector('#bdSpinStyle')) {
+    const st = document.createElement('style'); st.id = 'bdSpinStyle';
+    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+  document.body.appendChild(modal);
+
+  try {
+    const data = await api(`/api/admin/orders/${orderId}/courier-live-status`);
+    const s = data.status || {};
+    const deliveryStatus = s.delivery_status || s.status || data.delivery_status || 'unknown';
+    const statusColor = deliveryStatus === 'delivered' ? '#16a34a' : deliveryStatus === 'cancelled' || deliveryStatus === 'returned' ? '#ef4444' : '#f59e0b';
+    const statusEmoji = deliveryStatus === 'delivered' ? '✅' : deliveryStatus === 'cancelled' || deliveryStatus === 'returned' ? '❌' : '🚚';
+
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header" style="background:linear-gradient(135deg,#0e7490,#0f766e)">
+        <h2 style="color:#fff">📦 Courier Tracking</h2>
+        <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+      </div>
+      <div style="padding:24px">
+        <div style="text-align:center;margin-bottom:20px">
+          <div style="font-size:48px;margin-bottom:8px">${statusEmoji}</div>
+          <div style="font-size:22px;font-weight:800;color:${statusColor};text-transform:capitalize">${deliveryStatus}</div>
+          <div style="color:#64748b;font-size:13px;margin-top:4px">Consignment: <code>${consignmentId}</code></div>
+          <div style="color:#64748b;font-size:13px">Courier: ${courier || 'Steadfast'}</div>
+        </div>
+        ${data.note ? `<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;padding:12px;font-size:13px;color:#374151">${data.note}</div>` : ''}
+        ${s.delivery_charge ? `<div style="text-align:center;margin-top:12px;color:#64748b;font-size:13px">Delivery Charge: <strong>TK ${s.delivery_charge}</strong></div>` : ''}
+        <div style="display:flex;gap:10px;margin-top:16px;justify-content:center">
+          <button class="btn btn-primary" onclick="refreshCourierStatus(${orderId});this.closest('.admin-modal').remove()">🔄 Sync to DB</button>
+          <button class="btn btn-ghost" onclick="this.closest('.admin-modal').remove()">Close</button>
+        </div>
+      </div>`;
+  } catch(e) {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header"><h2>📦 Courier Tracking</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div style="padding:30px;text-align:center"><p style="color:#ef4444">${e.message}</p></div>`;
+  }
 }
 
 async function sendToCourier(orderId) {
