@@ -157,7 +157,7 @@ async function fetchOrders() {
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:11px;color:#0f766e;border-color:#0f766e" onclick="checkCustomerBdCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">🔍 Check</button>
+        <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:11px;color:#1a4a2e;border-color:#1a4a2e" onclick="checkCustomerCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">📦 Check</button>
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
@@ -265,7 +265,7 @@ async function viewOrder(id) {
       <div class="order-detail-grid">
         <div class="detail-box"><h4>Customer Info</h4>
           <div class="detail-row"><span>Name:</span><span>${o.customer_name}</span></div>
-          <div class="detail-row"><span>Phone:</span><span>${o.phone} <button class="btn btn-sm" style="margin-left:8px;background:#0f766e;color:#fff;padding:2px 10px;font-size:12px" onclick="checkCustomerBdCourier('${o.phone}','${o.customer_name}')">🔍 Customer Check</button></span></div>
+          <div class="detail-row"><span>Phone:</span><span>${o.phone} <button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;color:#fff;padding:2px 10px;font-size:12px" onclick="checkCustomerCourier('${o.phone}','${o.customer_name}')">📦 Courier Check</button></span></div>
           <div class="detail-row"><span>Address:</span><span>${o.address}</span></div>
           <div class="detail-row"><span>District:</span><span>${o.district || '-'}</span></div>
           ${o.problem_description ? `<div class="detail-row"><span>Issue:</span><span>${o.problem_description}</span></div>` : ''}
@@ -541,6 +541,95 @@ function _renderBdResult(modal, data, name, phone) {
       <h4 style="margin-bottom:10px;color:#334155;font-size:14px">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
       ${reportRows}
     </div>`;
+}
+
+async function checkCustomerCourier(phone, name) {
+  const modal = document.createElement('div');
+  modal.className = 'admin-modal';
+  modal.onclick = function(e) { if(e.target===this) this.remove(); };
+  modal.innerHTML = `<div class="admin-modal-content" style="max-width:560px">
+    <div class="modal-header" style="background:linear-gradient(135deg,#1a4a2e,#2d6e47);padding:18px 20px;border-radius:14px 14px 0 0;margin:-24px -24px 20px">
+      <h2 style="color:#fff;font-size:16px">📦 Customer Courier Check</h2>
+      <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <p style="color:#64748b;font-size:13px;margin-bottom:16px">Checking: <strong>${name}</strong> — ${phone}</p>
+    <div style="text-align:center;padding:24px">
+      <div style="width:36px;height:36px;border:4px solid #e2e8f0;border-top-color:#1a4a2e;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto"></div>
+      <p style="color:#94a3b8;margin-top:10px;font-size:13px">Steadfast API থেকে data আনছে...</p>
+    </div>
+  </div>`;
+  if (!document.querySelector('#bdSpinStyle')) {
+    const st = document.createElement('style'); st.id = 'bdSpinStyle';
+    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+  document.body.appendChild(modal);
+
+  try {
+    const data = await api('/api/admin/customer/courier-check', {
+      method: 'POST',
+      body: JSON.stringify({ phone })
+    });
+
+    const rateColor = parseFloat(data.rate) >= 70 ? '#16a34a' : parseFloat(data.rate) >= 40 ? '#d97706' : '#ef4444';
+    const rateEmoji = parseFloat(data.rate) >= 70 ? '✅' : parseFloat(data.rate) >= 40 ? '⚠️' : '🚨';
+
+    const statusBadge = (s) => {
+      const colors = { delivered:'#16a34a', cancelled:'#6b7280', returned:'#ef4444', shipped:'#0e7490', processing:'#7c3aed', confirmed:'#1d4ed8', pending:'#c2410c' };
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:50px;font-size:11px;font-weight:600;background:${colors[s]||'#e5e7eb'}22;color:${colors[s]||'#6b7280'}">${s}</span>`;
+    };
+
+    const ordersHtml = data.orders.length === 0
+      ? '<p style="text-align:center;color:#94a3b8;padding:12px">এই নম্বরে কোনো অর্ডার নেই</p>'
+      : data.orders.map(o => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px">
+          <div>
+            <strong>${o.order_number}</strong>
+            <span style="margin-left:8px;color:#94a3b8;font-size:11px">${new Date(o.date).toLocaleDateString('en-US')}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:#64748b;font-size:12px">${o.courier||'Steadfast'}</span>
+            ${statusBadge(o.courier_status || o.status)}
+          </div>
+        </div>`).join('');
+
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a4a2e,#2d6e47);padding:18px 20px;border-radius:14px 14px 0 0;margin:-24px -24px 20px">
+        <h2 style="color:#fff;font-size:16px">📦 Customer Courier Check</h2>
+        <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+      </div>
+      <p style="color:#64748b;font-size:13px;margin-bottom:16px"><strong>${name}</strong> — ${phone}</p>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+        <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#1e293b">${data.total}</div>
+          <div style="font-size:11px;color:#64748b">মোট অর্ডার</div>
+        </div>
+        <div style="background:#f0fdf4;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#16a34a">${data.success}</div>
+          <div style="font-size:11px;color:#16a34a">ডেলিভারি</div>
+        </div>
+        <div style="background:#fef2f2;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#ef4444">${data.cancel}</div>
+          <div style="font-size:11px;color:#ef4444">বাতিল</div>
+        </div>
+        <div style="background:#fffbeb;border-radius:10px;padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:${rateColor}">${data.rate}%</div>
+          <div style="font-size:11px;color:${rateColor}">${rateEmoji} সাফল্য</div>
+        </div>
+      </div>
+
+      ${data.total > 0 ? `
+      <div style="background:#e2e8f0;border-radius:99px;height:8px;margin-bottom:20px">
+        <div style="width:${data.rate}%;background:${rateColor};border-radius:99px;height:100%;transition:width .5s"></div>
+      </div>` : ''}
+
+      <div style="max-height:260px;overflow-y:auto">${ordersHtml}</div>`;
+  } catch(e) {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header"><h2>📦 Courier Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div style="padding:30px;text-align:center"><p style="color:#ef4444">${e.message}</p></div>`;
+  }
 }
 
 async function checkCustomerBdCourier(phone, name) {
