@@ -1081,6 +1081,63 @@ app.delete('/api/admin/orders/:id', requireAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ===== CUSTOMER COURIER CHECK (via Steadfast) =====
+const _courierCheckCache = new Map();
+
+app.post('/api/admin/customer/courier-check', requireAdmin, async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone required' });
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+
+    const cached = _courierCheckCache.get(cleanPhone);
+    if (cached && Date.now() - cached.t < 5 * 60 * 1000) return res.json(cached.d);
+
+    // Get all orders for this phone from DB
+    const result = await pool.query(
+      `SELECT id, order_number, courier, consignment_id, status, courier_status, total_amount, created_at
+       FROM orders WHERE REPLACE(REPLACE(phone, '+880', '0'), ' ', '') LIKE $1
+       ORDER BY created_at DESC LIMIT 50`,
+      [`%${cleanPhone.slice(-10)}%`]
+    );
+    const orders = result.rows;
+
+    // Refresh Steadfast statuses for orders with consignment IDs
+    const sfOrders = orders.filter(o => o.consignment_id && (!o.courier || o.courier.toLowerCase().includes('steadfast')));
+    if (sfOrders.length > 0) {
+      await Promise.allSettled(sfOrders.map(async o => {
+        try {
+          const r = await steadfastRequest('GET', `/status_by_cid/${o.consignment_id}`);
+          if (r.delivery_status) {
+            const newStatus = r.delivery_status.toLowerCase();
+            o.courier_status = newStatus;
+            if (['delivered','cancelled','returned','hold'].includes(newStatus)) {
+              await pool.query('UPDATE orders SET courier_status=$1, updated_at=NOW() WHERE id=$2', [newStatus, o.id]);
+            }
+          }
+        } catch {}
+      }));
+    }
+
+    const total = orders.length;
+    const success = orders.filter(o => o.status === 'delivered' || o.courier_status === 'delivered').length;
+    const cancel = orders.filter(o => ['cancelled', 'returned'].includes(o.status) || ['cancelled', 'returned'].includes(o.courier_status)).length;
+    const pending = orders.filter(o => ['pending', 'confirmed', 'processing', 'shipped'].includes(o.status) && o.status !== 'cancelled').length;
+    const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '0.0';
+
+    const d = { total, success, cancel, pending, rate, orders: orders.map(o => ({
+      order_number: o.order_number,
+      courier: o.courier || 'Steadfast',
+      status: o.status,
+      courier_status: o.courier_status,
+      amount: o.total_amount,
+      date: o.created_at
+    }))};
+    _courierCheckCache.set(cleanPhone, { d, t: Date.now() });
+    res.json(d);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== BD COURIER - CUSTOMER RISK CHECK =====
 const _bdCache = new Map();
 
