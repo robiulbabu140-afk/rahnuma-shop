@@ -984,6 +984,60 @@ app.get('/api/admin/orders/:id/courier-status', requireAdmin, async (req, res) =
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Live courier stats — calls each courier API using Settings credentials
+app.get('/api/admin/courier/live-stats', requireAdmin, async (req, res) => {
+  try {
+    const ordersResult = await pool.query(
+      `SELECT id, courier, consignment_id, status FROM orders WHERE consignment_id IS NOT NULL AND consignment_id != '' ORDER BY created_at DESC LIMIT 200`
+    );
+    const rows = ordersResult.rows;
+
+    const sfOrders = rows.filter(o => !o.courier || o.courier.toLowerCase().includes('steadfast'));
+    const ptOrders = rows.filter(o => (o.courier||'').toLowerCase().includes('pathao'));
+    const rxOrders = rows.filter(o => (o.courier||'').toLowerCase().includes('redx'));
+
+    const getStatus = async (type, order) => {
+      try {
+        if (type === 'steadfast') {
+          const r = await steadfastRequest('GET', `/status_by_cid/${order.consignment_id}`);
+          const s = r.delivery_status || order.status || '';
+          if (r.delivery_status) await pool.query('UPDATE orders SET courier_status=$1, updated_at=NOW() WHERE id=$2', [s, order.id]);
+          return s.toLowerCase();
+        } else if (type === 'pathao') {
+          const r = await pathaoRequest('GET', `/aladdin/api/v1/orders/${order.consignment_id}`);
+          return ((r.data && r.data.order_status) || order.status || '').toLowerCase();
+        } else if (type === 'redx') {
+          const r = await redxRequest('GET', `/v1.0.0/parcel/${order.consignment_id}`);
+          return ((r.parcel && r.parcel.status) || order.status || '').toLowerCase();
+        }
+      } catch { return (order.status || '').toLowerCase(); }
+    };
+
+    const [sfSt, ptSt, rxSt] = await Promise.all([
+      Promise.all(sfOrders.map(o => getStatus('steadfast', o))),
+      Promise.all(ptOrders.map(o => getStatus('pathao', o))),
+      Promise.all(rxOrders.map(o => getStatus('redx', o))),
+    ]);
+
+    const agg = (statuses, name) => {
+      const total = statuses.length;
+      const success = statuses.filter(s => s === 'delivered').length;
+      const cancel = statuses.filter(s => s === 'cancelled' || s === 'returned').length;
+      return { courier: name, total, success, cancel, rate: total > 0 ? ((success/total)*100).toFixed(1) : '0.0' };
+    };
+
+    const couriers = [];
+    if (sfOrders.length) couriers.push(agg(sfSt, 'Steadfast'));
+    if (ptOrders.length) couriers.push(agg(ptSt, 'Pathao'));
+    if (rxOrders.length) couriers.push(agg(rxSt, 'RedX'));
+
+    const tt = couriers.reduce((s,c)=>s+c.total,0);
+    const ts = couriers.reduce((s,c)=>s+c.success,0);
+    const tc = couriers.reduce((s,c)=>s+c.cancel,0);
+    res.json({ overall: { total: tt, success: ts, cancel: tc, rate: tt > 0 ? ((ts/tt)*100).toFixed(1) : '0.0' }, couriers });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Courier success stats
 app.get('/api/admin/courier/success-stats', requireAdmin, async (req, res) => {
   try {
