@@ -35,10 +35,13 @@
       </nav>
     </aside>
 
+    <!-- SIDEBAR OVERLAY -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
     <!-- MAIN -->
     <main class="main-content">
       <header class="top-header">
-        <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
         <h1 id="pageTitle">Dashboard</h1>
         <div class="header-user" id="headerUser"></div>
       </header>
@@ -49,5 +52,17 @@
   </div>
 
 <script src="/admin/js/admin.js"></script>
+<script>
+function toggleSidebar() {
+  const s = document.getElementById('sidebar');
+  const o = document.getElementById('sidebarOverlay');
+  const open = s.classList.toggle('open');
+  o.classList.toggle('show', open);
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+}
+</script>
 </body>
 </html>
