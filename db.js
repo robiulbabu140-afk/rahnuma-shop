@@ -358,6 +358,7 @@ async function initDatabase() {
       'pathao_base_url': 'https://courier-api-sandbox.pathao.com',
       'redx_api_key': '',
       'redx_base_url': 'https://openapi.redx.com.bd',
+      'bdcourier_api_key': 'NdB66Zlw775caHq0U2YzfvSQmEd1Toh5bQ3e084MzC6QtFnR4Pe8ar4ly7pP',
       'default_delivery_charge_dhaka': '60',
       'default_delivery_charge_outside': '120',
       'facebook_pixel_id': '',
