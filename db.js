@@ -344,8 +344,8 @@ async function initDatabase() {
       'block_message_whatsapp': 'https://wa.me/8801303073353',
       'block_message_messenger': '',
       'usd_to_bdt_rate': '122',
-      'steadfast_api_key': '',
-      'steadfast_secret_key': '',
+      'steadfast_api_key': 'xgcdt3ngyiul7qopivm7v4xwguxa3opn',
+      'steadfast_secret_key': 'fwvz0oglkrutwxtqgpz4hk6n',
       'steadfast_base_url': 'https://portal.packzy.com/api/v1',
       'steadfast_auto_send': '0',
       'pathao_client_id': '7N1aMJQbWm',
@@ -373,6 +373,20 @@ async function initDatabase() {
 
     for (const [key, value] of Object.entries(settingsDefaults)) {
       await client.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, value]);
+    }
+
+    // Steadfast credentials — update if currently empty
+    const steadfastCredentials = {
+      'steadfast_api_key': 'xgcdt3ngyiul7qopivm7v4xwguxa3opn',
+      'steadfast_secret_key': 'fwvz0oglkrutwxtqgpz4hk6n',
+    };
+    for (const [key, value] of Object.entries(steadfastCredentials)) {
+      await client.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+         WHERE settings.value = ''`,
+        [key, value]
+      );
     }
 
     // Pathao credentials — update if currently empty (preserves admin changes)
