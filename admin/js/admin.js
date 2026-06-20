@@ -157,7 +157,7 @@ async function fetchOrders() {
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:11px;color:#1a4a2e;border-color:#1a4a2e" onclick="checkCustomerCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">📦 Check</button>
+        <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:11px;color:#1a4a2e;border-color:#1a4a2e" onclick="checkCustomerBdCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">🔍 Check</button>
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
@@ -265,7 +265,7 @@ async function viewOrder(id) {
       <div class="order-detail-grid">
         <div class="detail-box"><h4>Customer Info</h4>
           <div class="detail-row"><span>Name:</span><span>${o.customer_name}</span></div>
-          <div class="detail-row"><span>Phone:</span><span>${o.phone} <button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;color:#fff;padding:2px 10px;font-size:12px" onclick="checkCustomerCourier('${o.phone}','${o.customer_name}')">📦 Courier Check</button></span></div>
+          <div class="detail-row"><span>Phone:</span><span>${o.phone} <button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;color:#fff;padding:2px 10px;font-size:12px" onclick="checkCustomerBdCourier('${o.phone}','${o.customer_name}')">🔍 Customer Check</button></span></div>
           <div class="detail-row"><span>Address:</span><span>${o.address}</span></div>
           <div class="detail-row"><span>District:</span><span>${o.district || '-'}</span></div>
           ${o.problem_description ? `<div class="detail-row"><span>Issue:</span><span>${o.problem_description}</span></div>` : ''}
