@@ -348,14 +348,14 @@ async function initDatabase() {
       'steadfast_secret_key': '',
       'steadfast_base_url': 'https://portal.packzy.com/api/v1',
       'steadfast_auto_send': '0',
-      'pathao_client_id': '',
-      'pathao_client_secret': '',
-      'pathao_username': '',
-      'pathao_password': '',
+      'pathao_client_id': '7N1aMJQbWm',
+      'pathao_client_secret': 'wRcaibZkUdSNz2EI9ZyuXLlNrnAv0TdPUPXMnD39',
+      'pathao_username': 'robiul.babu1@gmail.com',
+      'pathao_password': 'robi206039',
       'pathao_store_id': '',
       'pathao_city_id': '1',
       'pathao_zone_id': '1',
-      'pathao_base_url': 'https://hermes.pathao.com',
+      'pathao_base_url': 'https://courier-api-sandbox.pathao.com',
       'redx_api_key': '',
       'redx_base_url': 'https://openapi.redx.com.bd',
       'default_delivery_charge_dhaka': '60',
@@ -372,6 +372,23 @@ async function initDatabase() {
 
     for (const [key, value] of Object.entries(settingsDefaults)) {
       await client.query('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, value]);
+    }
+
+    // Pathao credentials — update if currently empty (preserves admin changes)
+    const pathaoCredentials = {
+      'pathao_base_url': 'https://courier-api-sandbox.pathao.com',
+      'pathao_client_id': '7N1aMJQbWm',
+      'pathao_client_secret': 'wRcaibZkUdSNz2EI9ZyuXLlNrnAv0TdPUPXMnD39',
+      'pathao_username': 'robiul.babu1@gmail.com',
+      'pathao_password': 'robi206039',
+    };
+    for (const [key, value] of Object.entries(pathaoCredentials)) {
+      await client.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+         WHERE settings.value = ''`,
+        [key, value]
+      );
     }
 
     // Seed categories
