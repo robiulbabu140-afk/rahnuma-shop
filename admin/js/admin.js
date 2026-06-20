@@ -363,6 +363,96 @@ async function deleteOrder(id) {
   catch(e) { toast(e.message, 'error'); }
 }
 
+let _bdApiKey = null;
+const _bdLocalCache = new Map();
+
+async function _getBdKey() {
+  if (_bdApiKey) return _bdApiKey;
+  const r = await fetch('/api/admin/bdcourier-key');
+  const j = await r.json();
+  _bdApiKey = j.key;
+  return _bdApiKey;
+}
+
+function _renderBdResult(modal, data, name, phone) {
+  if (!data || data.error) {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header"><h2>🔍 Customer Risk Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
+      <div style="padding:30px;text-align:center"><div style="font-size:40px;margin-bottom:12px">❌</div>
+      <p style="color:#ef4444;font-weight:600">${(data && data.error) || 'Failed to check'}</p></div>`;
+    return;
+  }
+  if (data.status === 'error') {
+    modal.querySelector('.admin-modal-content').innerHTML = `
+      <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
+        <h2 style="color:#fff">🔍 Customer Risk Check</h2>
+        <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+      </div>
+      <div style="padding:30px;text-align:center">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <p style="font-size:18px;font-weight:700;color:#16a34a">কোনো রিপোর্ট পাওয়া যায়নি</p>
+        <p style="color:#64748b;margin-top:8px">এই কাস্টমারের বিরুদ্ধে কোনো ফ্রড রিপোর্ট নেই</p>
+        <p style="color:#94a3b8;margin-top:4px;font-size:13px">${name} — ${phone}</p>
+      </div>`;
+    return;
+  }
+  const d = data.data || {};
+  const summary = d.summary || {};
+  const reports = data.reports || [];
+  const couriers = Object.entries(d).filter(([k]) => k !== 'summary');
+  const riskColor = summary.success_ratio >= 80 ? '#16a34a' : summary.success_ratio >= 60 ? '#d97706' : '#ef4444';
+  const riskLabel = summary.success_ratio >= 80 ? '✅ কম ঝুঁকি' : summary.success_ratio >= 60 ? '⚠️ মাঝারি ঝুঁকি' : '🚨 উচ্চ ঝুঁকি';
+  const courierCards = couriers.map(([, c]) => {
+    const ratio = c.success_ratio || 0;
+    const bc = ratio >= 80 ? '#16a34a' : ratio >= 60 ? '#d97706' : '#ef4444';
+    return `<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <img src="${c.logo}" onerror="this.style.display='none'" style="height:22px;object-fit:contain">
+        <span style="font-weight:600;font-size:14px">${c.name}</span>
+        <span style="margin-left:auto;font-weight:700;color:${bc}">${ratio}%</span>
+      </div>
+      <div style="background:#e2e8f0;border-radius:99px;height:7px">
+        <div style="width:${ratio}%;background:${bc};border-radius:99px;height:100%"></div>
+      </div>
+      <div style="display:flex;gap:12px;font-size:12px;color:#64748b">
+        <span>মোট: <strong>${c.total_parcel}</strong></span>
+        <span>সফল: <strong style="color:#16a34a">${c.success_parcel}</strong></span>
+        <span>বাতিল: <strong style="color:#ef4444">${c.cancelled_parcel}</strong></span>
+      </div></div>`;
+  }).join('');
+  const reportRows = reports.length ? reports.map(r => `
+    <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <img src="${r.courierLogo}" onerror="this.style.display='none'" style="height:18px;object-fit:contain">
+        <span style="font-weight:600;color:#c2410c">${r.courierName}</span>
+        <span style="margin-left:auto;font-size:12px;color:#94a3b8">${new Date(r.created_at).toLocaleDateString('en-US')}</span>
+      </div>
+      <p style="font-size:13px;color:#7c2d12;margin:0"><strong>${r.name}</strong> — ${r.details}</p>
+    </div>`).join('') : `<div style="text-align:center;color:#64748b;padding:16px">কোনো ফ্রড রিপোর্ট নেই ✅</div>`;
+
+  modal.querySelector('.admin-modal-content').innerHTML = `
+    <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
+      <h2 style="color:#fff">🔍 Customer Risk Check</h2>
+      <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
+    </div>
+    <div style="padding:20px">
+      <div style="background:#f0fdf4;border:2px solid ${riskColor};border-radius:12px;padding:16px;text-align:center;margin-bottom:20px">
+        <p style="font-size:22px;font-weight:800;color:${riskColor}">${riskLabel}</p>
+        <p style="color:#0f172a;font-size:15px;margin-top:4px">${name} — ${phone}</p>
+        <div style="display:flex;justify-content:center;gap:28px;margin-top:12px">
+          <div><div style="font-size:22px;font-weight:800;color:#0f172a">${summary.total_parcel||0}</div><div style="font-size:12px;color:#64748b">মোট পার্সেল</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:#16a34a">${summary.success_parcel||0}</div><div style="font-size:12px;color:#64748b">সফল</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:#ef4444">${summary.cancelled_parcel||0}</div><div style="font-size:12px;color:#64748b">বাতিল</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:${riskColor}">${summary.success_ratio||0}%</div><div style="font-size:12px;color:#64748b">সাফল্য হার</div></div>
+        </div>
+      </div>
+      <h4 style="margin-bottom:12px;color:#334155">কুরিয়ার ভিত্তিক বিশ্লেষণ</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">${courierCards}</div>
+      <h4 style="margin-bottom:12px;color:#334155">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
+      ${reportRows}
+    </div>`;
+}
+
 async function checkCustomerBdCourier(phone, name) {
   const modal = document.createElement('div');
   modal.className = 'admin-modal';
@@ -374,107 +464,48 @@ async function checkCustomerBdCourier(phone, name) {
     <div style="padding:20px;text-align:center">
       <p style="color:#64748b;margin-bottom:6px">Checking delivery history for</p>
       <p style="font-size:18px;font-weight:700;color:#0f172a">${name} — ${phone}</p>
-      <div style="margin-top:20px;font-size:28px">⏳</div>
-      <p style="color:#94a3b8;margin-top:8px">Loading from BD Courier...</p>
+      <div style="margin-top:20px"><div style="width:40px;height:40px;border:4px solid #e2e8f0;border-top-color:#0f766e;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto"></div></div>
+      <p style="color:#94a3b8;margin-top:12px;font-size:13px">Loading...</p>
     </div>
   </div>`;
+  if (!document.querySelector('#bdSpinStyle')) {
+    const st = document.createElement('style'); st.id = 'bdSpinStyle';
+    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
   document.body.appendChild(modal);
 
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cacheKey = 'bdc_' + cleanPhone;
+  const cached = _bdLocalCache.get(cacheKey);
+  if (cached && Date.now() - cached.t < 10 * 60 * 1000) {
+    _renderBdResult(modal, cached.d, name, phone);
+    return;
+  }
+
   try {
-    const res = await fetch('/api/admin/customer/bdcourier-check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
-    });
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
-      modal.querySelector('.admin-modal-content').innerHTML = `
-        <div class="modal-header"><h2>🔍 Customer Risk Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
-        <div style="padding:30px;text-align:center">
-          <div style="font-size:40px;margin-bottom:12px">❌</div>
-          <p style="color:#ef4444;font-weight:600">${data.error || 'Failed to check'}</p>
-        </div>`;
-      return;
+    let data;
+    try {
+      const key = await _getBdKey();
+      const r = await fetch('https://api.bdcourier.com/courier-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ phone: cleanPhone }),
+        signal: AbortSignal.timeout(8000)
+      });
+      data = await r.json();
+    } catch {
+      const r2 = await fetch('/api/admin/customer/bdcourier-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+        signal: AbortSignal.timeout(10000)
+      });
+      data = await r2.json();
     }
 
-    if (data.status === 'error') {
-      modal.querySelector('.admin-modal-content').innerHTML = `
-        <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
-          <h2 style="color:#fff">🔍 Customer Risk Check</h2>
-          <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
-        </div>
-        <div style="padding:30px;text-align:center">
-          <div style="font-size:48px;margin-bottom:12px">✅</div>
-          <p style="font-size:18px;font-weight:700;color:#16a34a">কোনো রিপোর্ট পাওয়া যায়নি</p>
-          <p style="color:#64748b;margin-top:8px">এই কাস্টমারের বিরুদ্ধে কোনো ফ্রড রিপোর্ট নেই</p>
-          <p style="color:#94a3b8;margin-top:4px;font-size:13px">${name} — ${phone}</p>
-        </div>`;
-      return;
-    }
-
-    const d = data.data || {};
-    const summary = d.summary || {};
-    const reports = data.reports || [];
-    const couriers = Object.entries(d).filter(([k]) => k !== 'summary');
-
-    const riskColor = summary.success_ratio >= 80 ? '#16a34a' : summary.success_ratio >= 60 ? '#d97706' : '#ef4444';
-    const riskLabel = summary.success_ratio >= 80 ? '✅ কম ঝুঁকি' : summary.success_ratio >= 60 ? '⚠️ মাঝারি ঝুঁকি' : '🚨 উচ্চ ঝুঁকি';
-
-    const courierCards = couriers.map(([key, c]) => {
-      const ratio = c.success_ratio || 0;
-      const barColor = ratio >= 80 ? '#16a34a' : ratio >= 60 ? '#d97706' : '#ef4444';
-      return `<div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <img src="${c.logo}" onerror="this.style.display='none'" style="height:22px;object-fit:contain">
-          <span style="font-weight:600;font-size:14px">${c.name}</span>
-          <span style="margin-left:auto;font-weight:700;color:${barColor}">${ratio}%</span>
-        </div>
-        <div style="background:#e2e8f0;border-radius:99px;height:7px">
-          <div style="width:${ratio}%;background:${barColor};border-radius:99px;height:100%;transition:width .5s"></div>
-        </div>
-        <div style="display:flex;gap:12px;font-size:12px;color:#64748b">
-          <span>মোট: <strong>${c.total_parcel}</strong></span>
-          <span>সফল: <strong style="color:#16a34a">${c.success_parcel}</strong></span>
-          <span>বাতিল: <strong style="color:#ef4444">${c.cancelled_parcel}</strong></span>
-        </div>
-      </div>`;
-    }).join('');
-
-    const reportRows = reports.length ? reports.map(r => `
-      <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <img src="${r.courierLogo}" onerror="this.style.display='none'" style="height:18px;object-fit:contain">
-          <span style="font-weight:600;color:#c2410c">${r.courierName}</span>
-          <span style="margin-left:auto;font-size:12px;color:#94a3b8">${new Date(r.created_at).toLocaleDateString('bn-BD')}</span>
-        </div>
-        <p style="font-size:13px;color:#7c2d12;margin:0"><strong>${r.name}</strong> — ${r.details}</p>
-      </div>`).join('') :
-      `<div style="text-align:center;color:#64748b;padding:16px">কোনো ফ্রড রিপোর্ট নেই ✅</div>`;
-
-    modal.querySelector('.admin-modal-content').innerHTML = `
-      <div class="modal-header" style="background:linear-gradient(135deg,#0f766e,#0e7490)">
-        <h2 style="color:#fff">🔍 Customer Risk Check</h2>
-        <button class="modal-close" style="color:#fff" onclick="this.closest('.admin-modal').remove()">&times;</button>
-      </div>
-      <div style="padding:20px">
-        <div style="background:#f0fdf4;border:2px solid ${riskColor};border-radius:12px;padding:16px;text-align:center;margin-bottom:20px">
-          <p style="font-size:22px;font-weight:800;color:${riskColor}">${riskLabel}</p>
-          <p style="color:#0f172a;font-size:15px;margin-top:4px">${name} — ${phone}</p>
-          <div style="display:flex;justify-content:center;gap:28px;margin-top:12px">
-            <div><div style="font-size:22px;font-weight:800;color:#0f172a">${summary.total_parcel||0}</div><div style="font-size:12px;color:#64748b">মোট পার্সেল</div></div>
-            <div><div style="font-size:22px;font-weight:800;color:#16a34a">${summary.success_parcel||0}</div><div style="font-size:12px;color:#64748b">সফল ডেলিভারি</div></div>
-            <div><div style="font-size:22px;font-weight:800;color:#ef4444">${summary.cancelled_parcel||0}</div><div style="font-size:12px;color:#64748b">বাতিল</div></div>
-            <div><div style="font-size:22px;font-weight:800;color:${riskColor}">${summary.success_ratio||0}%</div><div style="font-size:12px;color:#64748b">সাফল্যের হার</div></div>
-          </div>
-        </div>
-
-        <h4 style="margin-bottom:12px;color:#334155">কুরিয়ার ভিত্তিক বিশ্লেষণ</h4>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">${courierCards}</div>
-
-        <h4 style="margin-bottom:12px;color:#334155">ফ্রড রিপোর্ট ${reports.length ? `<span style="background:#ef4444;color:#fff;border-radius:99px;padding:2px 8px;font-size:12px">${reports.length}</span>` : ''}</h4>
-        ${reportRows}
-      </div>`;
+    _bdLocalCache.set(cacheKey, { d: data, t: Date.now() });
+    _renderBdResult(modal, data, name, phone);
   } catch(e) {
     modal.querySelector('.admin-modal-content').innerHTML = `
       <div class="modal-header"><h2>🔍 Customer Risk Check</h2><button class="modal-close" onclick="this.closest('.admin-modal').remove()">&times;</button></div>
