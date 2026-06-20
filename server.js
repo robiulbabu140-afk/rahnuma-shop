@@ -1000,6 +1000,8 @@ app.delete('/api/admin/orders/:id', requireAdmin, async (req, res) => {
 });
 
 // ===== BD COURIER - CUSTOMER RISK CHECK =====
+const _bdCache = new Map();
+
 app.post('/api/admin/customer/bdcourier-check', requireAdmin, async (req, res) => {
   try {
     const { phone } = req.body;
@@ -1009,8 +1011,11 @@ app.post('/api/admin/customer/bdcourier-check', requireAdmin, async (req, res) =
     if (!apiKey) return res.status(400).json({ error: 'BD Courier API key not configured in Settings' });
 
     const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const postData = JSON.stringify({ phone: cleanPhone });
 
+    const cached = _bdCache.get(cleanPhone);
+    if (cached && Date.now() - cached.t < 10 * 60 * 1000) return res.json(cached.d);
+
+    const postData = JSON.stringify({ phone: cleanPhone });
     const result = await new Promise((resolve, reject) => {
       const request = https.request({
         hostname: 'api.bdcourier.com',
@@ -1027,12 +1032,20 @@ app.post('/api/admin/customer/bdcourier-check', requireAdmin, async (req, res) =
         r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid response from BD Courier')); } });
       });
       request.on('error', reject);
+      request.setTimeout(8000, () => { request.destroy(); reject(new Error('BD Courier API timeout')); });
       request.write(postData);
       request.end();
     });
 
+    _bdCache.set(cleanPhone, { d: result, t: Date.now() });
     res.json(result);
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Return BD Courier API key for direct browser calls (admin only)
+app.get('/api/admin/bdcourier-key', requireAdmin, async (req, res) => {
+  const s = await getSettings();
+  res.json({ key: s.bdcourier_api_key || '' });
 });
 
 // ===== STEADFAST WEBHOOK =====
