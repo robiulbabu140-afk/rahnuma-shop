@@ -75,6 +75,142 @@ async function getSettings() {
   return settings;
 }
 
+// ===== PATHAO COURIER API =====
+
+let pathaoToken = null;
+let pathaoTokenExpiry = null;
+
+async function getPathaoToken() {
+  const settings = await getSettings();
+  const clientId = settings.pathao_client_id;
+  const clientSecret = settings.pathao_client_secret;
+  const username = settings.pathao_username;
+  const password = settings.pathao_password;
+  const baseUrl = settings.pathao_base_url || 'https://hermes.pathao.com';
+  if (!clientId || !clientSecret) throw new Error('Pathao credentials not configured');
+  if (pathaoToken && pathaoTokenExpiry && Date.now() < pathaoTokenExpiry) return pathaoToken;
+
+  const postData = JSON.stringify({ client_id: clientId, client_secret: clientSecret, username, password, grant_type: 'password' });
+  return new Promise((resolve, reject) => {
+    const url = new URL(baseUrl + '/aladdin/api/v1/issue-token');
+    const req = https.request({ hostname: url.hostname, path: url.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) } }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(data);
+          if (r.access_token) { pathaoToken = r.access_token; pathaoTokenExpiry = Date.now() + (r.expires_in || 3600) * 1000 - 60000; resolve(r.access_token); }
+          else reject(new Error(r.message || 'Pathao auth failed'));
+        } catch(e) { reject(new Error('Invalid Pathao response')); }
+      });
+    });
+    req.on('error', reject); req.write(postData); req.end();
+  });
+}
+
+function pathaoRequest(method, endpoint, body) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const token = await getPathaoToken();
+      const settings = await getSettings();
+      const url = new URL((settings.pathao_base_url || 'https://hermes.pathao.com') + endpoint);
+      const postData = body ? JSON.stringify(body) : null;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      if (postData) headers['Content-Length'] = Buffer.byteLength(postData);
+      const req = https.request({ hostname: url.hostname, path: url.pathname + url.search, method, headers }, (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('Invalid Pathao response')); } });
+      });
+      req.on('error', reject); if (postData) req.write(postData); req.end();
+    } catch(e) { reject(e); }
+  });
+}
+
+async function sendOrderToPathao(orderId) {
+  const orderRes = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = orderRes.rows[0];
+  if (!order) throw new Error('Order not found');
+  if (order.consignment_id) throw new Error('Already sent to courier');
+  const settings = await getSettings();
+  if (!settings.pathao_store_id) throw new Error('Pathao Store ID not configured');
+  const itemsRes = await pool.query('SELECT product_name, quantity FROM order_items WHERE order_id = $1', [orderId]);
+  const itemDesc = itemsRes.rows.map(i => `${i.product_name} x${i.quantity}`).join(', ');
+  const result = await pathaoRequest('POST', '/aladdin/api/v1/orders', {
+    store_id: parseInt(settings.pathao_store_id),
+    merchant_order_id: order.order_number,
+    sender_name: settings.shop_name_en || settings.shop_name || 'Rahnuma Shop',
+    sender_phone: settings.shop_phone || '',
+    recipient_name: order.customer_name,
+    recipient_phone: order.phone,
+    recipient_address: [order.address, order.area, order.city, order.district].filter(Boolean).join(', '),
+    recipient_city: parseInt(settings.pathao_city_id) || 1,
+    recipient_zone: parseInt(settings.pathao_zone_id) || 1,
+    delivery_type: 48,
+    item_type: 2,
+    special_instruction: order.notes || '',
+    item_quantity: 1,
+    item_weight: 0.5,
+    amount_to_collect: order.payment_method === 'cod' ? order.total_amount : 0,
+    item_description: itemDesc
+  });
+  if (result.code === 200 && result.data) {
+    const d = result.data;
+    await pool.query(`UPDATE orders SET courier='Pathao', consignment_id=$1, tracking_code=$2, tracking_number=$2, courier_status=$3, status='shipped', shipped_at=NOW(), updated_at=NOW() WHERE id=$4`,
+      [String(d.consignment_id), d.order_status || 'pending', d.order_status || 'pending', orderId]);
+    return { success: true, data: d };
+  }
+  throw new Error(result.message || 'Pathao API error');
+}
+
+// ===== REDX COURIER API =====
+
+function redxRequest(method, endpoint, body) {
+  return new Promise(async (resolve, reject) => {
+    const settings = await getSettings();
+    const apiKey = settings.redx_api_key;
+    const baseUrl = settings.redx_base_url || 'https://openapi.redx.com.bd';
+    if (!apiKey) return reject(new Error('RedX API key not configured'));
+    const url = new URL(baseUrl + endpoint);
+    const postData = body ? JSON.stringify(body) : null;
+    const headers = { 'API-ACCESS-TOKEN': apiKey, 'Content-Type': 'application/json' };
+    if (postData) headers['Content-Length'] = Buffer.byteLength(postData);
+    const req = https.request({ hostname: url.hostname, path: url.pathname + url.search, method, headers }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('Invalid RedX response')); } });
+    });
+    req.on('error', reject); if (postData) req.write(postData); req.end();
+  });
+}
+
+async function sendOrderToRedx(orderId) {
+  const orderRes = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = orderRes.rows[0];
+  if (!order) throw new Error('Order not found');
+  if (order.consignment_id) throw new Error('Already sent to courier');
+  const itemsRes = await pool.query('SELECT product_name, quantity FROM order_items WHERE order_id = $1', [orderId]);
+  const itemDesc = itemsRes.rows.map(i => `${i.product_name} x${i.quantity}`).join(', ');
+  const result = await redxRequest('POST', '/v1.0.0-beta/parcel', {
+    customer_name: order.customer_name,
+    customer_phone: order.phone,
+    delivery_area: [order.city, order.district].filter(Boolean).join(', ') || 'Dhaka',
+    customer_address: [order.address, order.area].filter(Boolean).join(', '),
+    merchant_invoice_id: order.order_number,
+    cash_collection_amount: order.payment_method === 'cod' ? order.total_amount : 0,
+    parcel_weight: 500,
+    instruction: order.notes || '',
+    value: order.total_amount
+  });
+  if (result.result && result.result.tracking_id) {
+    const trackId = String(result.result.tracking_id);
+    await pool.query(`UPDATE orders SET courier='RedX', consignment_id=$1, tracking_code=$1, tracking_number=$1, courier_status='pending', status='shipped', shipped_at=NOW(), updated_at=NOW() WHERE id=$2`,
+      [trackId, orderId]);
+    return { success: true, tracking_id: trackId };
+  }
+  throw new Error(result.message || 'RedX API error');
+}
+
 // ===== STEADFAST COURIER API =====
 
 function steadfastRequest(method, endpoint, body) {
@@ -756,6 +892,44 @@ app.put('/api/admin/orders/:id', requireAdmin, async (req, res) => {
       [courier || null, tracking_number || null, notes || null, payment_status || null, req.params.id]);
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Send order to Pathao
+app.post('/api/admin/orders/:id/send-pathao', requireAdmin, async (req, res) => {
+  try { res.json(await sendOrderToPathao(req.params.id)); }
+  catch(e) { res.status(400).json({ error: e.message }); }
+});
+
+// Check Pathao order status
+app.get('/api/admin/orders/:id/pathao-status', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (orderResult.rows.length === 0 || !orderResult.rows[0].consignment_id) return res.status(400).json({ error: 'No Pathao data' });
+    const result = await pathaoRequest('GET', `/aladdin/api/v1/orders/${orderResult.rows[0].consignment_id}/info`);
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Get Pathao stores list
+app.get('/api/admin/courier/pathao-stores', requireAdmin, async (req, res) => {
+  try { res.json(await pathaoRequest('GET', '/aladdin/api/v1/stores')); }
+  catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Send order to RedX
+app.post('/api/admin/orders/:id/send-redx', requireAdmin, async (req, res) => {
+  try { res.json(await sendOrderToRedx(req.params.id)); }
+  catch(e) { res.status(400).json({ error: e.message }); }
+});
+
+// Check RedX parcel status
+app.get('/api/admin/orders/:id/redx-status', requireAdmin, async (req, res) => {
+  try {
+    const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    if (orderResult.rows.length === 0 || !orderResult.rows[0].consignment_id) return res.status(400).json({ error: 'No RedX data' });
+    const result = await redxRequest('GET', `/v1.0.0-beta/parcel/track/${orderResult.rows[0].consignment_id}`);
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // Send order to Steadfast Courier
