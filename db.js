@@ -294,6 +294,14 @@ async function initDatabase() {
       );
     `);
 
+    // Safe column additions for existing tables
+    const alterCols = [
+      `ALTER TABLE products ADD COLUMN IF NOT EXISTS damaged_stock INT DEFAULT 0`,
+    ];
+    for (const alter of alterCols) {
+      try { await client.query(alter); } catch(e) { console.warn('Alter warning:', e.message); }
+    }
+
     // Create indexes (IF NOT EXISTS is supported in PG 9.5+)
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_blocked_type_value ON blocked_entries(type, value)',
