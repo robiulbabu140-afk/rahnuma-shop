@@ -207,16 +207,20 @@ async function viewOrder(id) {
       </div>
 
       ${o.consignment_id ? `<div class="detail-box" style="margin-top:16px;background:#ecfeff;border-color:#0ea5e9">
-        <h4 style="color:#0e7490">Courier Info (Steadfast)</h4>
+        <h4 style="color:#0e7490">Courier Info (${o.courier||'Courier'})</h4>
         <div class="detail-row"><span>Consignment ID:</span><span>${o.consignment_id}</span></div>
         <div class="detail-row"><span>Tracking Code:</span><span><strong>${o.tracking_code}</strong></span></div>
         <div class="detail-row"><span>Courier Status:</span><span><span class="badge badge-${o.courier_status==='delivered'?'delivered':o.courier_status==='cancelled'?'cancelled':'shipped'}">${o.courier_status||'-'}</span></span></div>
         ${o.delivery_charge ? `<div class="detail-row"><span>Delivery Charge:</span><span>TK ${o.delivery_charge}</span></div>` : ''}
         ${o.courier_message ? `<div class="detail-row"><span>Tracking:</span><span>${o.courier_message}</span></div>` : ''}
         <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="refreshCourierStatus(${o.id})">Refresh Status</button>
-      </div>` : `<div style="margin-top:16px;padding:16px;background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px;text-align:center">
-        <p style="margin-bottom:10px;font-size:14px;color:#92400e">This order has not been sent to courier yet</p>
-        <button class="btn btn-gold" onclick="sendToCourier(${o.id})">Send to Steadfast Courier</button>
+      </div>` : `<div style="margin-top:16px;padding:16px;background:#fff7ed;border:1.5px solid #f59e0b;border-radius:10px">
+        <p style="margin-bottom:12px;font-size:14px;color:#92400e;text-align:center">এই অর্ডারটি এখনো কোনো কুরিয়ারে পাঠানো হয়নি</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-gold" onclick="sendToCourier(${o.id})">🚚 Steadfast</button>
+          <button class="btn btn-primary" onclick="sendToPathao(${o.id})">🛵 Pathao</button>
+          <button class="btn" style="background:#e53e3e;color:#fff" onclick="sendToRedx(${o.id})">📦 RedX</button>
+        </div>
       </div>`}
 
       <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
@@ -254,7 +258,27 @@ async function sendToCourier(orderId) {
   if (!confirm('Send this order to Steadfast courier?')) return;
   try {
     const result = await api('/api/admin/orders/' + orderId + '/send-courier', { method: 'POST' });
-    toast('Sent to courier! Tracking: ' + (result.consignment?.tracking_code || ''));
+    toast('Steadfast — Tracking: ' + (result.consignment?.tracking_code || ''));
+    document.querySelector('.admin-modal')?.remove();
+    fetchOrders();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function sendToPathao(orderId) {
+  if (!confirm('Send this order to Pathao courier?')) return;
+  try {
+    const result = await api('/api/admin/orders/' + orderId + '/send-pathao', { method: 'POST' });
+    toast('Pathao — Consignment: ' + (result.data?.consignment_id || ''));
+    document.querySelector('.admin-modal')?.remove();
+    fetchOrders();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function sendToRedx(orderId) {
+  if (!confirm('Send this order to RedX courier?')) return;
+  try {
+    const result = await api('/api/admin/orders/' + orderId + '/send-redx', { method: 'POST' });
+    toast('RedX — Tracking ID: ' + (result.tracking_id || ''));
     document.querySelector('.admin-modal')?.remove();
     fetchOrders();
   } catch(e) { toast(e.message, 'error'); }
@@ -2002,6 +2026,31 @@ async function loadSettings() {
       </div>
 
       <div class="settings-section">
+        <h3>Pathao Courier API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Pathao courier integration — create orders, track shipments.</p>
+        <div class="form-grid">
+          <div class="form-group"><label>Client ID</label><input id="sPathaoClientId" value="${s.pathao_client_id||''}" placeholder="Pathao Client ID"></div>
+          <div class="form-group"><label>Client Secret</label><input id="sPathaoClientSecret" type="password" value="${s.pathao_client_secret||''}" placeholder="Pathao Client Secret"></div>
+          <div class="form-group"><label>Username (Email)</label><input id="sPathaoUsername" value="${s.pathao_username||''}" placeholder="Pathao account email"></div>
+          <div class="form-group"><label>Password</label><input id="sPathaoPassword" type="password" value="${s.pathao_password||''}" placeholder="Pathao account password"></div>
+          <div class="form-group"><label>Store ID</label><input id="sPathaoStoreId" value="${s.pathao_store_id||''}" placeholder="Store ID"><small style="color:#888">Get from Pathao merchant portal</small></div>
+          <div class="form-group"><label>Default City ID</label><input id="sPathaoCityId" value="${s.pathao_city_id||'1'}" placeholder="1 = Dhaka"></div>
+          <div class="form-group"><label>Default Zone ID</label><input id="sPathaoZoneId" value="${s.pathao_zone_id||'1'}" placeholder="Zone ID"></div>
+          <div class="form-group"><label>Base URL</label><input id="sPathaoBaseUrl" value="${s.pathao_base_url||'https://hermes.pathao.com'}"></div>
+        </div>
+        <div style="margin-top:12px"><button type="button" class="btn btn-ghost" onclick="checkPathaoStores()">Get My Stores</button> <span id="pathaoStoreInfo"></span></div>
+      </div>
+
+      <div class="settings-section">
+        <h3>RedX Courier API</h3>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">RedX courier integration — create parcels, track deliveries.</p>
+        <div class="form-grid">
+          <div class="form-group"><label>API Access Token</label><input id="sRedxApiKey" type="password" value="${s.redx_api_key||''}" placeholder="RedX API Access Token"><small style="color:#888">RedX merchant portal > API settings</small></div>
+          <div class="form-group"><label>Base URL</label><input id="sRedxBaseUrl" value="${s.redx_base_url||'https://openapi.redx.com.bd'}"></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3>Facebook Pixel & Conversion API</h3>
         <p style="font-size:13px;color:#666;margin-bottom:16px">Client-side Pixel + Server-side Conversion API (CAPI) both work. Deduplication via Event ID prevents duplicate events.</p>
         <div class="form-grid">
@@ -2067,6 +2116,16 @@ async function saveSettings(e) {
       steadfast_api_key: document.getElementById('sSteadfastKey').value,
       steadfast_secret_key: document.getElementById('sSteadfastSecret').value,
       steadfast_base_url: document.getElementById('sSteadfastUrl').value,
+      pathao_client_id: document.getElementById('sPathaoClientId').value,
+      pathao_client_secret: document.getElementById('sPathaoClientSecret').value,
+      pathao_username: document.getElementById('sPathaoUsername').value,
+      pathao_password: document.getElementById('sPathaoPassword').value,
+      pathao_store_id: document.getElementById('sPathaoStoreId').value,
+      pathao_city_id: document.getElementById('sPathaoCityId').value,
+      pathao_zone_id: document.getElementById('sPathaoZoneId').value,
+      pathao_base_url: document.getElementById('sPathaoBaseUrl').value,
+      redx_api_key: document.getElementById('sRedxApiKey').value,
+      redx_base_url: document.getElementById('sRedxBaseUrl').value,
       facebook_pixel_id: document.getElementById('sFbPixelId').value,
       facebook_access_token: document.getElementById('sFbAccessToken').value,
       facebook_test_event_code: document.getElementById('sFbTestCode').value,
@@ -2085,6 +2144,16 @@ async function changePassword() {
     document.getElementById('sCurPass').value = '';
     document.getElementById('sNewPass').value = '';
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function checkPathaoStores() {
+  const el = document.getElementById('pathaoStoreInfo');
+  el.textContent = 'Loading...';
+  try {
+    const data = await api('/api/admin/courier/pathao-stores');
+    const stores = data.data || [];
+    el.innerHTML = stores.map(s => `<span style="background:#e0f2fe;padding:2px 8px;border-radius:4px;margin-right:6px;font-size:12px">${s.store_name} (ID: ${s.store_id})</span>`).join('') || 'No stores found';
+  } catch(e) { el.innerHTML = `<span style="color:#dc2626">${e.message}</span>`; }
 }
 
 async function checkCourierBalance() {
