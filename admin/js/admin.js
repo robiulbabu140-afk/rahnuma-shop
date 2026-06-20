@@ -146,13 +146,7 @@ let _courierStats = null;
 
 async function fetchOrders() {
   try {
-    const [data, stats] = await Promise.all([
-      api('/api/admin/orders?' + new URLSearchParams({ page: ordersPage, limit: 20, status: ordersStatus, search: ordersSearch })),
-      api('/api/admin/courier/success-stats').catch(() => null)
-    ]);
-    _courierStats = stats;
-    const rate = stats ? stats.overall.rate : '—';
-    const rateColor = stats && parseFloat(stats.overall.rate) >= 70 ? '#16a34a' : '#dc2626';
+    const data = await api('/api/admin/orders?' + new URLSearchParams({ page: ordersPage, limit: 20, status: ordersStatus, search: ordersSearch }));
 
     const tbody = data.orders.map(o => `<tr>
       <td><strong>${o.order_number}</strong></td>
@@ -163,17 +157,15 @@ async function fetchOrders() {
       <td>${new Date(o.created_at).toLocaleDateString('en-US')}</td>
       <td>${o.courier ? `<span style="font-size:11px">${o.courier}</span>${o.tracking_code ? `<br><code style="font-size:10px">${o.tracking_code}</code>` : ''}` : '<span style="color:#999;font-size:11px">—</span>'}</td>
       <td style="white-space:nowrap">
-        <span style="font-weight:700;color:${rateColor}">${rate}%</span>
-        <button class="btn btn-sm btn-ghost" style="margin-left:4px;padding:2px 8px;font-size:11px" onclick="showCourierStats()">Check</button>
+        <button class="btn btn-sm btn-ghost" style="padding:3px 10px;font-size:11px;color:#0f766e;border-color:#0f766e" onclick="checkCustomerBdCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">🔍 Check</button>
       </td>
       <td class="table-actions">
         <button class="btn btn-sm btn-ghost" onclick="viewOrder(${o.id})">Details</button>
-        <button class="btn btn-sm" style="background:#0f766e;color:#fff;padding:4px 8px" title="Customer Risk Check" onclick="checkCustomerBdCourier('${o.phone}','${(o.customer_name||'').replace(/'/g,' ')}')">🔍</button>
         ${!o.consignment_id && (o.status==='confirmed'||o.status==='processing') ? `<button class="btn btn-sm btn-gold" onclick="sendToCourier(${o.id})">🚀</button>` : ''}
       </td>
     </tr>`).join('');
 
-    document.getElementById('ordersTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Courier Success</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table></div>`;
+    document.getElementById('ordersTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th>Payment</th><th>Date</th><th>Courier</th><th>Customer Check</th><th>Action</th></tr></thead><tbody>${tbody}</tbody></table></div>`;
 
     let pagHtml = `<button ${data.page<=1?'disabled':''} onclick="ordersPage--;fetchOrders()">← Prev</button>`;
     pagHtml += `<span>Page ${data.page} / ${data.pages || 1}</span>`;
