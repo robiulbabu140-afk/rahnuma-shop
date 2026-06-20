@@ -1593,7 +1593,7 @@ app.get('/api/admin/reports/profit', requireAdmin, async (req, res) => {
 
 app.get('/api/admin/inventory/overview', requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query(`SELECT id, name, sku, price, cost_price, stock, low_stock_alert, category FROM products WHERE deleted_at IS NULL ORDER BY stock ASC NULLS FIRST`);
+    const result = await pool.query(`SELECT p.id, p.name, p.name_bn, p.sku, p.price, p.cost_price, p.stock, p.low_stock_alert, c.name as category FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.deleted_at IS NULL ORDER BY p.stock ASC NULLS FIRST`);
     res.json(result.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
