@@ -1462,9 +1462,158 @@ app.get('/api/admin/reports/sales', requireAdmin, async (req, res) => {
 
 app.get('/api/admin/reports/products', requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query(`SELECT oi.product_name, SUM(oi.quantity) as total_sold, SUM(oi.total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status != 'cancelled' GROUP BY oi.product_name ORDER BY total_sold DESC LIMIT 20`);
+    const { from, to } = req.query;
+    let sql = `SELECT oi.product_name, SUM(oi.quantity) as total_sold, SUM(oi.total) as total_revenue FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.status != 'cancelled'`;
+    const params = [];
+    if (from) { sql += ` AND DATE(o.created_at) >= $${params.length+1}`; params.push(from); }
+    if (to) { sql += ` AND DATE(o.created_at) <= $${params.length+1}`; params.push(to); }
+    sql += ` GROUP BY oi.product_name ORDER BY total_sold DESC LIMIT 20`;
+    const result = await pool.query(sql, params);
     res.json(result.rows);
   } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/admin/reports/customers', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const params = [];
+    let dFilter = '';
+    if (from) { dFilter += ` AND DATE(created_at) >= $${params.length+1}`; params.push(from); }
+    if (to) { dFilter += ` AND DATE(created_at) <= $${params.length+1}`; params.push(to); }
+
+    const totalNew = parseInt((await pool.query(`SELECT COUNT(*) c FROM customers WHERE 1=1${dFilter}`, params)).rows[0].c);
+    const topCustomers = (await pool.query(
+      `SELECT c.name, c.phone, COUNT(o.id) as orders, COALESCE(SUM(o.total_amount),0) as total FROM customers c LEFT JOIN orders o ON o.phone=c.phone WHERE o.status!='cancelled'${from ? ` AND DATE(o.created_at)>=$${params.length+1}` : ''}${to ? ` AND DATE(o.created_at)<=$${params.length+(from?2:1)}` : ''} GROUP BY c.name,c.phone ORDER BY total DESC LIMIT 10`,
+      params
+    )).rows;
+    const repeatCount = parseInt((await pool.query(`SELECT COUNT(DISTINCT phone) c FROM orders WHERE status!='cancelled' GROUP BY phone HAVING COUNT(*)>1`)).rows.length);
+
+    res.json({ totalNew, repeatCount, topCustomers });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/reports/courier', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    let sql = `SELECT COALESCE(courier,'Steadfast') as courier, COUNT(*) as total, SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status IN('cancelled','returned') THEN 1 ELSE 0 END) as cancel FROM orders WHERE consignment_id IS NOT NULL AND consignment_id != ''`;
+    const params = [];
+    if (from) { sql += ` AND DATE(created_at) >= $${params.length+1}`; params.push(from); }
+    if (to) { sql += ` AND DATE(created_at) <= $${params.length+1}`; params.push(to); }
+    sql += ` GROUP BY COALESCE(courier,'Steadfast')`;
+    const rows = (await pool.query(sql, params)).rows;
+    const couriers = rows.map(r => ({ ...r, rate: r.total > 0 ? ((r.success/r.total)*100).toFixed(1) : '0.0' }));
+    const tt = couriers.reduce((s,c)=>s+parseInt(c.total),0);
+    const ts = couriers.reduce((s,c)=>s+parseInt(c.success),0);
+    const tc = couriers.reduce((s,c)=>s+parseInt(c.cancel),0);
+    res.json({ overall: { total: tt, success: ts, cancel: tc, rate: tt>0?((ts/tt)*100).toFixed(1):'0.0' }, couriers });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/reports/profit', requireAdmin, async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const params = [];
+    let dFilter = '';
+    if (from) { dFilter += ` AND DATE(created_at) >= $${params.length+1}`; params.push(from); }
+    if (to) { dFilter += ` AND DATE(created_at) <= $${params.length+1}`; params.push(to); }
+
+    const revenue = parseFloat((await pool.query(`SELECT COALESCE(SUM(total_amount),0) v FROM orders WHERE status='delivered'${dFilter}`, params)).rows[0].v);
+    const expenses = parseFloat((await pool.query(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE 1=1${dFilter}`, params)).rows[0].v);
+    const adSpend = parseFloat((await pool.query(`SELECT COALESCE(SUM(spend_bdt),0) v FROM ad_spends WHERE 1=1${from ? ` AND date >= $${params.indexOf(from)+1}` : ''}${to ? ` AND date <= $${params.indexOf(to)+1}` : ''}`, params)).rows[0].v);
+    const purchaseCost = parseFloat((await pool.query(`SELECT COALESCE(SUM(total_cost),0) v FROM purchases WHERE 1=1${from ? ` AND purchase_date >= $1` : ''}${to ? ` AND purchase_date <= $${from?2:1}` : ''}`, params)).rows[0].v);
+
+    const grossProfit = revenue - purchaseCost;
+    const netProfit = grossProfit - expenses - adSpend;
+
+    res.json({ revenue, purchaseCost, grossProfit, expenses, adSpend, netProfit });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== INVENTORY =====
+
+app.get('/api/admin/inventory/overview', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT id, name, sku, price, cost_price, stock, low_stock_alert, category FROM products WHERE deleted_at IS NULL ORDER BY stock ASC NULLS FIRST`);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/admin/inventory/stock/:id', requireAdmin, async (req, res) => {
+  try {
+    const { stock } = req.body;
+    await pool.query('UPDATE products SET stock=$1 WHERE id=$2', [parseInt(stock), req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== SUPPLIERS =====
+
+app.get('/api/admin/suppliers', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM suppliers ORDER BY name');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/suppliers', requireAdmin, async (req, res) => {
+  try {
+    const { name, phone, email, address, notes } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const r = await pool.query('INSERT INTO suppliers (name,phone,email,address,notes) VALUES ($1,$2,$3,$4,$5) RETURNING *', [name, phone||'', email||'', address||'', notes||'']);
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/suppliers/:id', requireAdmin, async (req, res) => {
+  try {
+    const { name, phone, email, address, notes } = req.body;
+    const r = await pool.query('UPDATE suppliers SET name=$1,phone=$2,email=$3,address=$4,notes=$5 WHERE id=$6 RETURNING *', [name, phone||'', email||'', address||'', notes||'', req.params.id]);
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/suppliers/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM suppliers WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== PURCHASES =====
+
+app.get('/api/admin/purchases', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT p.*, s.name as supplier FROM purchases p LEFT JOIN suppliers s ON p.supplier_id=s.id ORDER BY p.purchase_date DESC, p.created_at DESC LIMIT 200');
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/purchases', requireAdmin, async (req, res) => {
+  try {
+    const { supplier_id, supplier_name, product_id, product_name, quantity, cost_per_unit, purchase_date, notes } = req.body;
+    if (!product_name || !quantity || !cost_per_unit) return res.status(400).json({ error: 'Product, quantity, cost required' });
+    const total_cost = parseFloat(quantity) * parseFloat(cost_per_unit);
+    const r = await pool.query(
+      'INSERT INTO purchases (supplier_id,supplier_name,product_id,product_name,quantity,cost_per_unit,total_cost,purchase_date,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+      [supplier_id||null, supplier_name||'', product_id||null, product_name, parseInt(quantity), parseFloat(cost_per_unit), total_cost, purchase_date||new Date().toISOString().split('T')[0], notes||'']
+    );
+    if (product_id) {
+      await pool.query('UPDATE products SET stock = COALESCE(stock,0) + $1 WHERE id=$2', [parseInt(quantity), product_id]);
+    }
+    res.json(r.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/purchases/:id', requireAdmin, async (req, res) => {
+  try {
+    const p = (await pool.query('SELECT * FROM purchases WHERE id=$1', [req.params.id])).rows[0];
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    await pool.query('DELETE FROM purchases WHERE id=$1', [req.params.id]);
+    if (p.product_id) {
+      await pool.query('UPDATE products SET stock = GREATEST(COALESCE(stock,0) - $1, 0) WHERE id=$2', [p.quantity, p.product_id]);
+    }
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ===== FILE UPLOAD =====
