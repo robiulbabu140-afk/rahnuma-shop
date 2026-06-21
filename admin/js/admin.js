@@ -95,7 +95,7 @@ async function loadDashboard() {
       <div class="table-wrap">
         <div class="table-header"><h2>Recent Orders</h2></div>
         <div class="table-responsive"><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead><tbody>
-        ${d.recentOrders.map(o => `<tr style="cursor:pointer" onclick="loadPage('orders');setTimeout(()=>viewOrder(${o.order_number.replace(/[^0-9A-Z]/g,'')}),500)">
+        ${d.recentOrders.map(o => `<tr style="cursor:pointer" onclick="loadPage('orders');setTimeout(()=>viewOrder(${o.id}),500)">
           <td>${o.order_number}</td><td>${o.customer_name}</td><td>TK ${o.total_amount}</td><td><span class="badge badge-${o.status}">${o.status}</span></td>
         </tr>`).join('')}
         </tbody></table></div>
@@ -149,8 +149,8 @@ async function fetchOrders() {
     const data = await api('/api/admin/orders?' + new URLSearchParams({ page: ordersPage, limit: 20, status: ordersStatus, search: ordersSearch }));
 
     const tbody = data.orders.map(o => `<tr>
-      <td><strong>${o.order_number}</strong></td>
-      <td>${o.customer_name}<br><small style="color:#999">${o.phone}</small></td>
+      <td><strong>${escapeHtml(o.order_number)}</strong></td>
+      <td>${escapeHtml(o.customer_name||'')}<br><small style="color:#999">${escapeHtml(o.phone||'')}</small></td>
       <td>TK ${o.total_amount}</td>
       <td><span class="badge badge-${o.status}">${o.status}</span></td>
       <td>${o.payment_status === 'paid' ? '<span style="color:#16a34a">Paid</span>' : '<span style="color:#f59e0b">Unpaid</span>'}</td>
@@ -723,8 +723,7 @@ async function showProductForm(id) {
   let product = { name:'', name_bn:'', description:'', description_bn:'', price:'', sale_price:'', cost_price:'', sku:'', category_id:'', stock:0, low_stock_alert:5, image:'', tags:'', is_active:1, is_featured:0 };
   if (id) {
     try {
-      const data = await api('/api/admin/products?search=');
-      const found = data.products.find(p => p.id === id);
+      const found = await api('/api/admin/products/' + id);
       if (found) product = found;
     } catch(e) {}
   }
@@ -852,7 +851,7 @@ async function uploadImage(input) {
   const form = new FormData();
   form.append('image', input.files[0]);
   try {
-    const res = await fetch('/api/admin/upload', { method: 'POST', body: form });
+    const res = await fetch('/api/admin/upload', { method: 'POST', body: form, credentials: 'same-origin' });
     const data = await res.json();
     document.getElementById('pImageUrl').value = data.url;
     document.getElementById('pImagePreview').innerHTML = `<img src="${data.url}" style="width:60px;height:60px;border-radius:8px;object-fit:cover;margin-top:8px">`;
@@ -954,8 +953,8 @@ async function fetchCustomers() {
     const data = await api(`/api/admin/customers?page=${customersPage}&search=${search}`);
     document.getElementById('customersTable').innerHTML = `<div class="table-responsive"><table><thead><tr><th>Name</th><th>Phone</th><th>Address</th><th>Orders</th><th>Total Spent</th><th>Fraud Score</th><th>Action</th></tr></thead><tbody>
     ${data.customers.map(c => `<tr>
-      <td><strong>${c.name}</strong>${c.is_blocked?'<span style="color:red;font-size:11px"> (Blocked)</span>':''}</td>
-      <td>${c.phone}</td><td>${c.address||'-'}</td><td>${c.total_orders}</td><td>TK ${c.total_spent}</td>
+      <td><strong>${escapeHtml(c.name||'')}</strong>${c.is_blocked?'<span style="color:red;font-size:11px"> (Blocked)</span>':''}</td>
+      <td>${escapeHtml(c.phone||'')}</td><td>${escapeHtml(c.address||'-')}</td><td>${c.total_orders}</td><td>TK ${c.total_spent}</td>
       <td style="color:${c.fraud_score>50?'#dc2626':c.fraud_score>20?'#f59e0b':'#16a34a'}">${c.fraud_score}</td>
       <td class="table-actions"><button class="btn btn-sm btn-ghost" onclick="viewCustomer(${c.id})">Details</button></td>
     </tr>`).join('')}</tbody></table></div>`;
@@ -1083,11 +1082,21 @@ async function loadExpenses() {
 }
 
 async function reloadExpenses() {
-  const month = document.getElementById('expMonth').value;
+  const month = document.getElementById('expMonth')?.value;
+  if (!month) return;
+  const c = document.getElementById('pageContent');
   try {
     const data = await api('/api/admin/expenses?month=' + month);
-    loadExpenses();
-  } catch(e) {}
+    const expHtml = data.expenses.map(e => `<tr><td>${e.date}</td><td>${e.category}</td><td>TK ${e.amount}</td><td>${e.description||'-'}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="if(confirm('Delete?'))deleteExpense(${e.id})">✕</button></td></tr>`).join('');
+    const wrap = document.querySelector('#pageContent .table-wrap');
+    if (wrap) {
+      const header = wrap.querySelector('.table-header div strong');
+      if (header) header.textContent = `Total Expenses (${month}): TK ${data.total}`;
+      const tbody = wrap.querySelector('tbody');
+      if (tbody) tbody.innerHTML = expHtml || '<tr><td colspan="5" style="text-align:center;color:#999">No expenses</td></tr>';
+    }
+  } catch(e) { toast('Load failed', 'error'); }
 }
 
 function showExpenseForm() {
@@ -2540,7 +2549,7 @@ async function uploadBlockImage(input, blockIndex) {
   const form = new FormData();
   form.append('image', input.files[0]);
   try {
-    const res = await fetch('/api/admin/upload', { method: 'POST', body: form });
+    const res = await fetch('/api/admin/upload', { method: 'POST', body: form, credentials: 'same-origin' });
     const data = await res.json();
     if (data.url) {
       updateBlockData(blockIndex, 'url', data.url);
