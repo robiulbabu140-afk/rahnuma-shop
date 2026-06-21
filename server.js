@@ -42,14 +42,14 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-app.use(cors());
+app.use(cors({ origin: false }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'rahnuma-shop-secret-key-change-in-production',
+  secret: process.env.SESSION_SECRET || 'rhn-s3cr3t-k3y-2026-x9z',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' }
 }));
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -325,7 +325,7 @@ async function handleCourierStatusUpdate(order, newStatus, deliveryCharge, track
         ['Courier', charge, `Steadfast charge - ${order.order_number}`, new Date().toISOString().split('T')[0]]);
     }
     if (order.customer_id) {
-      await pool.query('UPDATE customers SET total_spent = total_spent + $1, updated_at = NOW() WHERE id = $2', [order.total_amount, order.customer_id]);
+      await pool.query('UPDATE customers SET updated_at = NOW() WHERE id = $1', [order.customer_id]);
     }
   }
 
@@ -645,7 +645,7 @@ app.post('/api/orders', async (req, res) => {
 
     const orderResult = await pool.query(`INSERT INTO orders (order_number, customer_id, customer_name, phone, address, district, city, area, subtotal, shipping_cost, discount, total_amount, hadiya_amount, status, payment_method, payment_status, problem_description, ip_address)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
-      [orderNumber, customerId, customer_name, phoneClean, address, district || '', city || '', area || '', subtotal, shippingCost, discount, totalAmount, hadiya_amount || 0, fraudScore > 70 ? 'flagged' : 'pending', payment_method || 'cod', 'unpaid', problem_description || '', req.ip]);
+      [orderNumber, customerId, customer_name, phoneClean, address, district || '', city || '', area || '', subtotal, shippingCost, discount, totalAmount, hadiya_amount || 0, fraudScore > 70 ? 'flagged' : 'pending', payment_method || 'cod', 'unpaid', problem_description || '', getClientIP(req)]);
 
     const orderId = orderResult.rows[0].id;
 
@@ -1252,6 +1252,17 @@ app.get('/api/admin/products', requireAdmin, async (req, res) => {
     const result = await pool.query(sql, params);
     res.json({ products: result.rows, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+app.get('/api/admin/products/:id', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id=c.id WHERE p.id=$1`,
+      [req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    res.json(result.rows[0]);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/admin/products', requireAdmin, async (req, res) => {
